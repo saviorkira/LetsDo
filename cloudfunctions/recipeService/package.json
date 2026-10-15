@@ -1,0 +1,9 @@
+{
+  "name": "recipeService",
+  "version": "1.0.0",
+  "description": "菜谱查询服务（列表 / 详情 / 忌口筛选项）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "generateMenu",
+  "version": "1.0.0",
+  "description": "随机菜单生成云函数（热量限定 / 完全随机两种模式，基于 ingredient 食材库实时计算营养）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

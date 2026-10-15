@@ -1,0 +1,23 @@
+{
+  "name": "LetsDo",
+  "appid": "",
+  "description": "来做吧 LetsDo，一键生成家常菜单的菜谱工具小程序",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "locale": "zh-Hans",
+  "mp-weixin": {
+    "appid": "wx47509108d337878e",
+    "usingComponents": true,
+    "lazyCodeLoading": "requiredComponents",
+    "darkmode": true,
+    "themeLocation": "theme.json",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "postcss": true,
+      "minified": true
+    }
+  }
+}
