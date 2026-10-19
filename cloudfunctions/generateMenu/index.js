@@ -164,18 +164,22 @@ exports.main = async (event) => {
   }
 
   // ---- 保存菜单历史记录，绑定当前用户 openid ----
-  await db.collection('menu_record').add({
-    data: {
-      openid: OPENID,
-      createTime: db.serverDate(),
-      recipeIdList: picked.map(r => r._id),
-      totalCalories: summary.totalCalories,
-      totalPrice: summary.totalPrice,
-      totalProtein: summary.totalProtein,
-      totalFat: summary.totalFat,
-      totalCarbohydrate: summary.totalCarbohydrate
-    }
-  })
+  try {
+    await db.collection('menu_record').add({
+      data: {
+        openid: OPENID,
+        createTime: db.serverDate(),
+        recipeIdList: picked.map(r => r._id),
+        totalCalories: summary.totalCalories,
+        totalPrice: summary.totalPrice,
+        totalProtein: summary.totalProtein,
+        totalFat: summary.totalFat,
+        totalCarbohydrate: summary.totalCarbohydrate
+      }
+    })
+  } catch (e) {
+    console.warn('menu_record 写入失败（集合不存在？），跳过保存历史：', e.message)
+  }
 
   return { code: 'OK', data: { recipes: picked, summary } }
 }

@@ -45,6 +45,14 @@ function calcRecipe(recipe, ingredientMap) {
       weight: item.weight,
       caloriesPer100g: ing.calories,
       calories: ing.calories * ratio,
+      pricePer100g: ing.price,
+      price: ing.price * ratio,
+      proteinPer100g: ing.protein,
+      protein: ing.protein * ratio,
+      fatPer100g: ing.fat,
+      fat: ing.fat * ratio,
+      carbohydratePer100g: ing.carbohydrate,
+      carbohydrate: ing.carbohydrate * ratio,
       nutritionDesc: ing.nutritionDesc || '',
       imageUrl: ing.imageUrl || '',
       isStaple: !!ing.isStaple,
@@ -68,23 +76,51 @@ exports.main = async (event) => {
   }
 
   if (action === 'list') {
+    const { cuisine, includeIngredientIdList, excludeIngredientIdList, keyword, page = 1, pageSize = 10 } = event || {}
     const [ingredients, recipes] = await Promise.all([getAll('ingredient'), getAll('recipe')])
     const ingredientMap = {}
     for (const ing of ingredients) ingredientMap[ing._id] = ing
 
-    const list = recipes.map(r => {
+    let list = recipes
+    // 菜系筛选
+    if (cuisine && typeof cuisine === 'string') {
+      list = list.filter(r => r.cuisine === cuisine)
+    }
+    // 排除含某些食材
+    if (Array.isArray(excludeIngredientIdList) && excludeIngredientIdList.length) {
+      const ban = new Set(excludeIngredientIdList)
+      list = list.filter(r => !(r.ingredientList || []).some(i => ban.has(i.ingredientId)))
+    }
+    // 必须包含某些食材
+    if (Array.isArray(includeIngredientIdList) && includeIngredientIdList.length) {
+      const must = new Set(includeIngredientIdList)
+      list = list.filter(r => (r.ingredientList || []).some(i => must.has(i.ingredientId)))
+    }
+    // 菜名搜索
+    const kw = String(keyword || '').trim().toLowerCase()
+    if (kw) list = list.filter(r => (r.name || '').toLowerCase().includes(kw))
+
+    // 分页
+    const total = list.length
+    const p = Math.max(1, Number(page) || 1)
+    const ps = Math.max(1, Math.min(50, Number(pageSize) || 10))
+    const start = (p - 1) * ps
+    list = list.slice(start, start + ps)
+
+    list = list.map(r => {
       const calc = calcRecipe(r, ingredientMap)
       return {
         _id: r._id,
         name: r.name,
         imageUrl: r.imageUrl || '',
         desc: r.desc || '',
+        cuisine: r.cuisine || '中式',
         totalCalories: calc.totalCalories,
         ingredientCount: calc.detail.length,
         isStaple: calc.detail.some(d => d.isStaple)
       }
     })
-    return { code: 'OK', data: list }
+    return { code: 'OK', data: { list, total, hasMore: start + ps < total, page: p } }
   }
 
   if (action === 'detail') {
@@ -123,5 +159,34 @@ exports.main = async (event) => {
     }
   }
 
-  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / filterOptions' }
+  // ---- 随机食材：随机抽 2~4 种食材（不含佐料），按做法词组合出菜名 ----
+  if (action === 'randomDish') {
+    const ingredients = await getAll('ingredient')
+    const pool = ingredients.filter(i => !i.isCondiment && i.name)
+    if (pool.length < 2) return { code: 'NO_DATA', message: '食材库数据不足' }
+
+    // 洗牌后抽 2~4 种
+    const shuffled = pool.slice().sort(() => Math.random() - 0.5)
+    const count = Math.min(2 + Math.floor(Math.random() * 3), pool.length)
+    const picked = shuffled.slice(0, count)
+
+    const list = picked.map(i => {
+      const weight = (8 + Math.floor(Math.random() * 8)) * 10 // 80~150g，10 的倍数
+      const ratio = weight / 100
+      return { ingredientId: i._id, name: i.name, weight, calories: (Number(i.calories) || 0) * ratio }
+    })
+    const totalCalories = list.reduce((s, x) => s + x.calories, 0)
+
+    // 菜名：做法词 + 主食材 + （炒/配 + 次食材）
+    const METHODS = ['蒜蓉', '清炒', '香煎', '红烧', '凉拌', '白灼', '酱爆', '上汤', '葱爆', '干煸']
+    const method = METHODS[Math.floor(Math.random() * METHODS.length)]
+    const main = list[0]
+    const second = list[1]
+    const joiner = Math.random() < 0.5 ? '炒' : '配'
+    const dishName = second ? `${method}${main.name}${joiner}${second.name}` : `${method}${main.name}`
+
+    return { code: 'OK', data: { dishName, ingredientList: list, totalCalories } }
+  }
+
+  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / filterOptions / randomDish' }
 }

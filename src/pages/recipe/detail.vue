@@ -6,7 +6,7 @@
       <!-- 顶部大图区 -->
       <view class="hero">
         <image v-if="detail.imageUrl" class="hero-img" :src="detail.imageUrl" mode="aspectFill" />
-        <view v-else class="hero-img ph">🍽️</view>
+        <view v-else class="hero-img ph">{{ dishIcon }}</view>
         <view class="grad"></view>
         <view class="ttl">
           <text class="b">{{ detail.name }}</text>
@@ -19,7 +19,7 @@
         <view class="label">食材配方</view>
         <view v-for="ing in detail.ingredientList" :key="ing.ingredientId" class="ing-row">
           <image v-if="ing.imageUrl" class="ing-thumb" :src="ing.imageUrl" mode="aspectFill" />
-          <view v-else class="ing-thumb ph">{{ ing.isVegetable ? '🥬' : '🍚' }}</view>
+          <view v-else class="ing-thumb ph">{{ ingredientIcon(ing) }}</view>
           <view class="n">
             <text class="b">{{ ing.name }}</text>
             <text class="s">{{ ing.caloriesPer100g }} kcal/100g · {{ ing.nutritionDesc }}</text>
@@ -41,6 +41,40 @@
           <view><text class="s">脂肪</text><text class="b">{{ detail.summary.totalFat.toFixed(1) }}g</text></view>
           <view><text class="s">碳水</text><text class="b">{{ detail.summary.totalCarbohydrate.toFixed(1) }}g</text></view>
           <view><text class="s">食材数</text><text class="b">{{ detail.summary.ingredientCount }} 种</text></view>
+        </view>
+      </view>
+
+      <!-- 计算过程（可展开）：展示整套菜谱营养/价格是怎么算出来的 -->
+      <view class="card ld-card">
+        <view class="calc-head" @click="showCalc = !showCalc">
+          <text class="label">整套菜谱计算过程</text>
+          <text class="toggle">{{ showCalc ? '收起 ▲' : '展开 ▼' }}</text>
+        </view>
+        <view v-if="showCalc" class="calc-body">
+          <text class="calc-note">所有数值都按「食材库每 100g 基准 ÷ 100 × 实际用量」逐项累加得出。</text>
+
+          <view v-for="row in calcRows" :key="row.name" class="calc-item">
+            <view class="ci-head">
+              <text class="ci-name">{{ row.name }}</text>
+              <text class="ci-w">{{ row.weight }}g</text>
+            </view>
+            <view class="ci-line">
+              <text class="ci-k">热量</text>
+              <text class="ci-v">{{ row.weight }} ÷ 100 × {{ row.calPer100g }}kcal = {{ row.calories.toFixed(1) }} kcal</text>
+            </view>
+            <view class="ci-line">
+              <text class="ci-k">价格</text>
+              <text class="ci-v">{{ row.weight }} ÷ 100 × ¥{{ row.pricePer100g }} = ¥{{ row.price.toFixed(2) }}</text>
+            </view>
+          </view>
+
+          <view class="calc-sum">
+            <view class="sum-line"><text class="sk">总热量</text><text class="sv">{{ detail.summary.totalCalories.toFixed(1) }} kcal</text></view>
+            <view class="sum-line"><text class="sk">总价</text><text class="sv">¥{{ detail.summary.totalPrice.toFixed(2) }}</text></view>
+            <view class="sum-line"><text class="sk">蛋白质</text><text class="sv">{{ detail.summary.totalProtein.toFixed(1) }} g</text></view>
+            <view class="sum-line"><text class="sk">脂肪</text><text class="sv">{{ detail.summary.totalFat.toFixed(1) }} g</text></view>
+            <view class="sum-line"><text class="sk">碳水化合物</text><text class="sv">{{ detail.summary.totalCarbohydrate.toFixed(1) }} g</text></view>
+          </view>
         </view>
       </view>
 
@@ -73,10 +107,34 @@ import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
 import { isDark } from '@/utils/theme'
+import { foodEmoji } from '@/utils/foodEmoji'
 import Disclaimer from '@/components/Disclaimer.vue'
 
 const detail = ref(null)
 const loading = ref(false)
+const showCalc = ref(false)
+
+// 顶部大图占位图标：按菜名推断贴切 emoji
+const dishIcon = computed(() => foodEmoji(detail.value && detail.value.name))
+
+// 食材缩略图占位图标：青菜类 🥬 / 肉类 🥩 / 水产 🐟 等
+function ingredientIcon(ing) {
+  return foodEmoji(ing.name, { isVegetable: ing.isVegetable, isStaple: ing.isStaple })
+}
+
+// 计算过程逐项数据：统一转数字并兜底，避免云函数旧版本缺字段时报错
+const calcRows = computed(() => {
+  const d = detail.value
+  if (!d || !d.ingredientList) return []
+  return d.ingredientList.map(ing => ({
+    name: ing.name,
+    weight: Number(ing.weight) || 0,
+    calPer100g: Number(ing.caloriesPer100g) || 0,
+    calories: Number(ing.calories) || 0,
+    pricePer100g: Number(ing.pricePer100g) || 0,
+    price: Number(ing.price) || 0
+  }))
+})
 
 // 解析视频号参数：videoChannelId 按「feedId:feedToken」格式录入，非法格式则不展示视频模块
 const videoInfo = computed(() => {
@@ -222,6 +280,78 @@ onLoad(async (query) => {
 
     .s { display: block; font-size: 23rpx; color: var(--ld-text-3); }
     .b { display: block; font-size: 28rpx; font-weight: 700; color: var(--ld-text); margin-top: 8rpx; }
+  }
+}
+
+/* 计算过程 */
+.calc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  .label { margin-bottom: 0; }
+
+  .toggle {
+    font-size: 23rpx;
+    color: var(--ld-primary-dark);
+    font-weight: 600;
+  }
+}
+
+.calc-body {
+  margin-top: 24rpx;
+
+  .calc-note {
+    display: block;
+    font-size: 22rpx;
+    color: var(--ld-text-3);
+    line-height: 1.6;
+    margin-bottom: 18rpx;
+  }
+}
+
+.calc-item {
+  padding: 18rpx 0;
+  border-bottom: 1rpx dashed var(--ld-line);
+
+  .ci-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+
+    .ci-name { font-size: 27rpx; font-weight: 600; color: var(--ld-text); }
+    .ci-w { font-size: 24rpx; color: var(--ld-text-2); }
+  }
+
+  .ci-line {
+    display: flex;
+    gap: 12rpx;
+    margin-top: 8rpx;
+
+    .ci-k {
+      flex-shrink: 0;
+      width: 64rpx;
+      font-size: 21rpx;
+      color: var(--ld-text-3);
+    }
+
+    .ci-v {
+      font-size: 21rpx;
+      color: var(--ld-text-2);
+    }
+  }
+}
+
+.calc-sum {
+  margin-top: 20rpx;
+
+  .sum-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 8rpx 0;
+
+    .sk { font-size: 24rpx; color: var(--ld-text-2); }
+    .sv { font-size: 24rpx; font-weight: 700; color: var(--ld-primary-dark); }
   }
 }
 

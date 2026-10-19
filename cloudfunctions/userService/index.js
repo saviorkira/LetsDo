@@ -74,6 +74,7 @@ exports.main = async (event) => {
         },
         checkedToday: allDates.has(today),
         monthDates,
+        allDates: Array.from(allDates),
         streak,
         totalCheckinDays: allDates.size
       }

@@ -3,7 +3,7 @@
 <template>
   <view class="recipe-card ld-card" @click="goDetail">
     <image v-if="recipe.imageUrl" class="cover" :src="recipe.imageUrl" mode="aspectFill" />
-    <view v-else class="cover ph">🍽️</view>
+    <view v-else class="cover ph">{{ coverIcon }}</view>
     <view class="info">
       <view class="name">
         <text class="t">{{ recipe.name }}</text>
@@ -22,6 +22,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { foodEmoji } from '@/utils/foodEmoji'
 
 const props = defineProps({
   // 菜谱对象：云函数已基于食材库计算好 totalCalories / totalPrice 等
@@ -33,6 +34,9 @@ const props = defineProps({
 })
 
 const subText = computed(() => props.ingredientSummary || props.recipe.desc || '')
+
+// 封面占位图标：按菜名推断（青菜 🥬 / 肉类 🥩 / 主食 🍚 等）
+const coverIcon = computed(() => foodEmoji(props.recipe.name, { isStaple: props.recipe.isStaple }))
 
 function goDetail() {
   uni.navigateTo({ url: `/pages/recipe/detail?id=${props.recipe._id}` })

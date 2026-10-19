@@ -1,0 +1,9 @@
+{
+  "name": "avatarService",
+  "version": "1.0.0",
+  "description": "健康形象服务（虚拟人物胖瘦 / 装扮商店 / 装备）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

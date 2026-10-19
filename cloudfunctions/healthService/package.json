@@ -1,0 +1,9 @@
+{
+  "name": "healthService",
+  "version": "1.0.0",
+  "description": "热量管理服务（身体数据 / 基础代谢 / 今日热量 / 运动推荐）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

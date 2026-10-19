@@ -21,13 +21,42 @@
         "navigationBarTitleText": "菜谱库",
         "navigationBarBackgroundColor": "@navBgColor",
         "navigationBarTextStyle": "@navTxtStyle",
-        "backgroundColor": "@bgColor"
+        "backgroundColor": "@bgColor",
+        "onReachBottomDistance": 80
       }
     },
     {
       "path": "pages/recipe/detail",
       "style": {
         "navigationBarTitleText": "菜谱详情",
+        "navigationBarBackgroundColor": "@navBgColor",
+        "navigationBarTextStyle": "@navTxtStyle",
+        "backgroundColor": "@bgColor"
+      }
+    },
+    {
+      "path": "pages/exercise/library",
+      "style": {
+        "navigationBarTitleText": "运动库",
+        "navigationBarBackgroundColor": "@navBgColor",
+        "navigationBarTextStyle": "@navTxtStyle",
+        "backgroundColor": "@bgColor",
+        "onReachBottomDistance": 80
+      }
+    },
+    {
+      "path": "pages/exercise/detail",
+      "style": {
+        "navigationBarTitleText": "运动详情",
+        "navigationBarBackgroundColor": "@navBgColor",
+        "navigationBarTextStyle": "@navTxtStyle",
+        "backgroundColor": "@bgColor"
+      }
+    },
+    {
+      "path": "pages/avatar/index",
+      "style": {
+        "navigationBarTitleText": "我的形象",
         "navigationBarBackgroundColor": "@navBgColor",
         "navigationBarTextStyle": "@navTxtStyle",
         "backgroundColor": "@bgColor"

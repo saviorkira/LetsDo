@@ -1,72 +1,135 @@
 <!-- 文件路径：src/pages/random/index.vue -->
-<!-- 随机 Tab（默认首页）：热量限定随机 / 完全随机 双模式菜单生成 -->
+<!-- 随机 Tab（默认首页）：热量限定随机 / 完全随机 / 随机运动 三模式 -->
 <template>
   <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
     <!-- 顶部模式分段切换 -->
-    <view class="seg ld-card">
-      <view class="seg-item" :class="{ on: mode === 'heatLimit' }" @click="mode = 'heatLimit'">热量限定随机</view>
-      <view class="seg-item" :class="{ on: mode === 'fullRandom' }" @click="mode = 'fullRandom'">完全随机</view>
+    <view class="seg">
+      <view class="seg-item" :class="{ on: mode === 'heatLimit' }" @click="mode = 'heatLimit'">随机菜单</view>
+      <view class="seg-item" :class="{ on: mode === 'fullRandom' }" @click="mode = 'fullRandom'">随机食材</view>
+      <view class="seg-item" :class="{ on: mode === 'exercise' }" @click="mode = 'exercise'">随机运动</view>
     </view>
 
-    <!-- ========== Tab1：热量限定随机 ========== -->
-    <template v-if="mode === 'heatLimit'">
-      <view class="cal-card ld-card">
-        <view class="label">目标热量区间</view>
-        <view class="kcal-big">
-          <text class="num">{{ calRange[0] }}</text>
-          <text class="sep">—</text>
-          <text class="num">{{ calRange[1] }}</text>
-          <text class="unit">kcal</text>
+    <!-- 模式面板：统一高度，保证三种模式下「操作按钮」位置完全一致 -->
+    <view class="panel">
+      <!-- ========== 热量限定随机 ========== -->
+      <template v-if="mode === 'heatLimit'">
+        <view class="cal-card">
+          <view class="label">目标热量区间</view>
+          <view class="kcal-big">
+            <text class="num">{{ calRange[0] }}</text>
+            <text class="sep">—</text>
+            <text class="num">{{ calRange[1] }}</text>
+            <text class="unit">kcal</text>
+          </view>
+          <view class="kcal-sub">整套菜单总热量需落在此区间</view>
+          <!-- Wot UI 双滑块（v-model 传入数组即为双滑块模式） -->
+          <view class="slider-wrap">
+            <wd-slider v-model="calRange" :min="300" :max="1200" :step="50" />
+          </view>
+          <view class="ticks"><text>300</text><text>600</text><text>900</text><text>1200</text></view>
         </view>
-        <view class="kcal-sub">整套菜单总热量需落在此区间</view>
-        <!-- Wot UI 双滑块（v-model 传数组即双滑块模式），范围 300~1200kcal，步进 50 -->
-        <wd-slider v-model="calRange" :min="300" :max="1200" :step="50" />
-        <view class="ticks"><text>300</text><text>600</text><text>900</text><text>1200</text></view>
-      </view>
 
-      <!-- 筛选按钮：存在已勾选忌口项时显示红点 -->
-      <view class="filter-row">
-        <view class="filter-btn ld-card" @click="openFilter">
-          <text>🧂 筛选</text>
-          <view v-if="excludeIds.length" class="dot"></view>
+        <view class="secondary">
+          <!-- 忌口按钮（虚线胶囊 + 红点） -->
+          <view class="filter-btn" :class="{ on: excludeIds.length }" @click="openFilter">
+            <text class="fi">🧂</text>
+            <text>忌口</text>
+            <view v-if="excludeIds.length" class="dot"></view>
+          </view>
+          <!-- 提示行：固定高度，无选中时隐藏但保留占位，避免按钮位移 -->
+          <text class="filter-hint" :class="{ hide: !excludeIds.length }">
+            已勾选 <em>{{ excludeIds.length }}</em> 项忌口，生成时将排除对应菜谱
+          </text>
         </view>
-        <text v-if="excludeIds.length" class="filter-hint">
-          已勾选 <text class="em">{{ excludeIds.length }} 项</text>忌口，生成时将排除对应菜谱
-        </text>
-      </view>
-    </template>
+      </template>
 
-    <!-- ========== Tab2：完全随机 ========== -->
-    <template v-else>
-      <view class="random-card ld-card">
-        <view class="dice">🎲</view>
-        <text class="t">不限热量，随缘一餐</text>
-        <text class="s">系统随机组合 2~4 道菜谱{'\n'}主食类食材份量不少于 50g</text>
-      </view>
-      <view class="cause-note">
-        <text>完全随机模式不做忌口过滤，若需排除特定食材请切换到「热量限定随机」。</text>
-      </view>
-    </template>
+      <!-- ========== 完全随机 ========== -->
+      <template v-else-if="mode === 'fullRandom'">
+        <view class="random-card">
+          <view class="dice">🎲</view>
+          <text class="t">随机食材，随缘拼菜</text>
+          <text class="s">系统随机抽取 2~4 种食材\n为它们组合出一个合适的菜名</text>
+        </view>
+        <view class="secondary">
+          <view class="cause-note">
+            <text class="cn">ℹ️</text>
+            <text>随机食材模式完全看缘分，不做忌口过滤；需要排除食材请用「随机菜单」。</text>
+          </view>
+        </view>
+      </template>
 
-    <!-- 生成按钮：生成期间置灰 loading，防重复点击 -->
+      <!-- ========== 随机运动 ========== -->
+      <template v-else>
+        <view class="random-card">
+          <view class="dice">🏃</view>
+          <text class="t">随便动一动</text>
+          <text class="s">按你的体重随机推荐一项运动\n并给出建议时长与消耗热量</text>
+        </view>
+        <view class="secondary">
+          <view class="cause-note">
+            <text class="cn">ℹ️</text>
+            <text>消耗热量按「MET × 3.5 × 体重 ÷ 200」计算，在「我的」录入身高体重后更准确。</text>
+          </view>
+        </view>
+      </template>
+    </view>
+
+    <!-- 主操作按钮：菜单生成 / 随机运动 -->
     <wd-button
       type="primary"
       block
       size="large"
       :loading="loading"
       :disabled="loading"
-      @click="generate"
-    >{{ loading ? '生成中...' : '生成菜单' }}</wd-button>
+      @click="onMainAction"
+    >{{ mainBtnText }}</wd-button>
 
-    <!-- ========== 生成结果 ========== -->
-    <template v-if="result">
-      <view class="summary ld-card">
+    <!-- ========== 随机运动结果 ========== -->
+    <template v-if="mode === 'exercise'">
+      <template v-if="exerciseResult">
+        <view class="result-divider">
+          <view class="line"></view>
+          <text class="txt">随机运动推荐</text>
+          <view class="line"></view>
+        </view>
+
+        <ExerciseCard
+          :exercise="exerciseResult"
+          :minutes="exerciseResult.suggestMinutes"
+          :burn="exerciseResult.suggestBurn"
+        />
+
+        <view class="ex-calc ld-card">
+          <text class="ec-t">消耗计算过程</text>
+          <text class="ec-l">每分钟消耗 = {{ exerciseResult.met }} MET × 3.5 × {{ exerciseResult.weight }}kg ÷ 200 = {{ exerciseResult.kcalPerMin.toFixed(1) }} kcal/分钟</text>
+          <text class="ec-l">建议 {{ exerciseResult.suggestMinutes }} 分钟 → 约消耗 {{ Math.round(exerciseResult.suggestBurn) }} kcal</text>
+        </view>
+      </template>
+
+      <view v-else class="empty">
+        <view class="ico">🏃</view>
+        <text class="b">还没有推荐</text>
+        <text class="s">点击「随机运动」，按体重随机推荐一项运动</text>
+      </view>
+    </template>
+
+    <!-- ========== 菜单生成结果（随机菜单模式） ========== -->
+    <template v-else-if="mode === 'heatLimit' && result">
+      <!-- 分隔线：把「生成按钮」与下方结果清晰分开 -->
+      <view class="result-divider">
+        <view class="line"></view>
+        <text class="txt">本次生成结果</text>
+        <view class="line"></view>
+      </view>
+
+      <!-- 绿色渐变汇总卡 -->
+      <view class="summary">
         <view class="top">
           <view class="t-l">
             <text class="big">{{ Math.round(result.summary.totalCalories) }}</text>
             <text class="s">整套菜单总热量 kcal</text>
           </view>
-          <view class="price">预估总价<text class="b">¥{{ result.summary.totalPrice.toFixed(1) }}</text></view>
+          <view class="price">预估总价<b>¥{{ result.summary.totalPrice.toFixed(1) }}</b></view>
         </view>
         <view class="macro">
           <view><text class="s">蛋白质</text><text class="b">{{ result.summary.totalProtein.toFixed(1) }}g</text></view>
@@ -75,7 +138,7 @@
         </view>
       </view>
 
-      <view class="label" style="margin: 8rpx 4rpx 20rpx">本次搭配（{{ result.recipes.length }} 道）</view>
+      <view class="list-label">本次搭配（{{ result.recipes.length }} 道）</view>
       <RecipeCard
         v-for="r in result.recipes"
         :key="r._id"
@@ -85,30 +148,54 @@
       />
     </template>
 
+    <!-- ========== 随机食材结果 ========== -->
+    <template v-else-if="mode === 'fullRandom' && dishResult">
+      <view class="result-divider">
+        <view class="line"></view>
+        <text class="txt">本次随机食材</text>
+        <view class="line"></view>
+      </view>
+      <view class="dish-summary">
+        <text class="dish-name">{{ dishResult.dishName }}</text>
+        <text class="dish-cal">约 {{ Math.round(dishResult.totalCalories) }} kcal</text>
+      </view>
+      <view class="list-label">食材组合（{{ dishResult.ingredientList.length }} 种）</view>
+      <view class="dish-ings">
+        <view v-for="ing in dishResult.ingredientList" :key="ing.ingredientId" class="di">
+          <text class="di-n">{{ ing.name }}</text>
+          <text class="di-w">{{ ing.weight }}g · {{ Math.round(ing.calories) }}kcal</text>
+        </view>
+      </view>
+    </template>
+
     <!-- ========== 未生成空状态 ========== -->
     <view v-else class="empty">
       <view class="ico">🔥</view>
       <text class="b">还没有菜单</text>
-      <text class="s" v-if="mode === 'heatLimit'">拖动滑块设置热量区间，点击「生成菜单」{'\n'}为你随机搭配 2~4 道菜谱</text>
-      <text class="s" v-else>点击「生成菜单」，随机为你搭配一餐</text>
+      <text class="s">{{ emptyText }}</text>
     </view>
 
     <!-- ========== 忌口筛选弹窗 ========== -->
-    <wd-popup v-model="showFilter" position="center" custom-style="width: 620rpx; border-radius: 32rpx; background: var(--ld-card);" @close="cancelFilter">
+    <wd-popup v-model="showFilter" position="center" custom-style="width: 600rpx; border-radius: 32rpx; background: var(--ld-card); padding: 0; overflow: hidden;">
       <view class="modal">
         <view class="m-head">
           <text class="t">忌口食材筛选</text>
           <text class="s">勾选后，生成菜单将排除包含所选食材的菜谱</text>
         </view>
         <scroll-view scroll-y class="m-body">
-          <wd-checkbox-group v-model="tempExcludeIds">
-            <wd-checkbox
-              v-for="ing in filterOptions"
-              :key="ing._id"
-              :model-value="ing._id"
-              custom-class="filter-check"
-            >不要{{ ing.name }}</wd-checkbox>
-          </wd-checkbox-group>
+          <view
+            v-for="ing in filterOptions"
+            :key="ing._id"
+            class="checkbox"
+            :class="{ on: tempExcludeIds.includes(ing._id) }"
+            @click="toggleExclude(ing._id)"
+          >
+            <view class="box">✓</view>
+            <view class="ct">
+              <text class="main">不要{{ ing.name }}</text>
+              <text class="hint">含{{ ing.name }}菜谱将被排除</text>
+            </view>
+          </view>
           <view v-if="!filterOptions.length" class="m-empty">食材加载中或暂无食材数据</view>
         </scroll-view>
         <view class="m-foot">
@@ -119,44 +206,77 @@
     </wd-popup>
 
     <Disclaimer />
-    <!-- 底部占位，避免内容被 TabBar 遮挡 -->
-    <view style="height: 140rpx"></view>
+    <view style="height: 160rpx"></view>
     <TabBar active="pages/random/index" />
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { onShow, onUnload } from '@dcloudio/uni-app'
+// 文件路径：src/pages/random/index.vue (script)
+import { ref, computed } from 'vue'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
 import { isDark } from '@/utils/theme'
 import TabBar from '@/components/TabBar.vue'
 import Disclaimer from '@/components/Disclaimer.vue'
 import RecipeCard from '@/components/RecipeCard.vue'
+import ExerciseCard from '@/components/ExerciseCard.vue'
 
 // ---- 页面状态 ----
-const mode = ref('heatLimit') // heatLimit 热量限定 / fullRandom 完全随机
-const calRange = ref([600, 900]) // 热量区间（双滑块）
+const mode = ref('heatLimit')
+const calRange = ref([600, 900])
 const loading = ref(false)
-const result = ref(null) // 生成结果 { recipes, summary }
+const result = ref(null)
+const dishResult = ref(null)
+const exerciseResult = ref(null)
 
-// ---- 忌口筛选状态（仅本次页面会话内保留，页面卸载即重置）----
-const filterOptions = ref([]) // 可筛选食材列表（来自 recipeService.filterOptions）
-const excludeIds = ref([]) // 已生效的忌口食材 _id
-const tempExcludeIds = ref([]) // 弹窗内编辑中的勾选
+// 主按钮文案随模式变化
+const mainBtnText = computed(() => {
+  if (mode.value === 'exercise') return loading.value ? '随机中...' : '随机运动'
+  if (mode.value === 'fullRandom') return loading.value ? '组合中...' : '随机食材'
+  return loading.value ? '生成中...' : '生成菜单'
+})
+
+// 空状态提示文案
+const emptyText = computed(() => {
+  if (mode.value === 'heatLimit') return '拖动滑块设置热量区间，点击「生成菜单」为你随机搭配 2~4 道菜谱'
+  if (mode.value === 'fullRandom') return '点击「随机食材」，随机抽取 2~4 种食材，为它们组合出一道菜'
+  return '点击「随机运动」，按体重随机推荐一项运动'
+})
+
+// ---- 忌口筛选状态（仅本次页面会话内保留）----
+// 先放默认 mock 数据，保证弹窗不会空；云端 ingredient 数据加载成功后覆盖
+const filterOptions = ref([
+  { _id: 'mock-cilantro', name: '香菜' },
+  { _id: 'mock-onion', name: '洋葱' },
+  { _id: 'mock-pork', name: '猪肉' },
+  { _id: 'mock-garlic', name: '大蒜' },
+  { _id: 'mock-seafood', name: '海鲜' },
+  { _id: 'mock-mushroom', name: '蘑菇' }
+])
+const excludeIds = ref([])
+const tempExcludeIds = ref([])
 const showFilter = ref(false)
 
-// 进入页面加载筛选项，失败不阻塞主流程
+// 加载筛选项：Promise.race 3s 超时，避免云函数未部署时卡住页面
 async function loadFilterOptions() {
   try {
-    const res = await callFunction('recipeService', { action: 'filterOptions' })
-    if (res.result && res.result.code === 'OK') filterOptions.value = res.result.data
+    const fetchP = callFunction('recipeService', { action: 'filterOptions' })
+    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+    const res = await Promise.race([fetchP, timeoutP])
+    const ret = res.result || {}
+    if (ret.code === 'OK' && ret.data && ret.data.length) {
+      filterOptions.value = ret.data
+    }
   } catch (e) {
-    console.warn('加载筛选项失败', e)
+    // 超时 / 云函数未部署：保留默认 mock 数据即可
+    console.warn('筛选项加载失败（可能云函数未部署），使用默认选项', e && e.message)
   }
 }
-onShow(() => {
-  if (!filterOptions.value.length) loadFilterOptions()
+
+onLoad(() => {
+  // 页面首次加载时异步获取筛选项，不阻塞渲染
+  loadFilterOptions()
 })
 // 页面卸载重置筛选条件（PRD 交互规则）
 onUnload(() => {
@@ -169,6 +289,11 @@ function openFilter() {
   tempExcludeIds.value = excludeIds.value.slice()
   showFilter.value = true
 }
+function toggleExclude(id) {
+  const idx = tempExcludeIds.value.indexOf(id)
+  if (idx >= 0) tempExcludeIds.value.splice(idx, 1)
+  else tempExcludeIds.value.push(id)
+}
 function resetFilter() {
   tempExcludeIds.value = []
 }
@@ -176,28 +301,43 @@ function confirmFilter() {
   excludeIds.value = tempExcludeIds.value.slice()
   showFilter.value = false
 }
-function cancelFilter() {
-  // 点击遮罩关闭：放弃本次编辑，还原为已生效状态
-  tempExcludeIds.value = excludeIds.value.slice()
+
+// ---- 主按钮：按当前模式分发 ----
+function onMainAction() {
+  if (mode.value === 'exercise') return randomExercise()
+  return generate()
 }
 
-// ---- 生成菜单 ----
+// ---- 生成（随机菜单 / 随机食材） ----
 async function generate() {
   if (loading.value) return
   loading.value = true
   try {
-    const params = mode.value === 'heatLimit'
-      ? { mode: 'heatLimit', minCal: calRange.value[0], maxCal: calRange.value[1], excludeIngredientIdList: excludeIds.value }
-      : { mode: 'fullRandom' }
+    if (mode.value === 'fullRandom') {
+      // 随机食材：云端随机抽取食材并组合菜名
+      const res = await callFunction('recipeService', { action: 'randomDish' })
+      const ret = res.result || {}
+      if (ret.code === 'OK') {
+        dishResult.value = ret.data
+        result.value = null
+        uni.pageScrollTo({ scrollTop: 0, duration: 200 })
+      } else {
+        uni.showToast({ title: ret.message || '组合失败，请稍后再试', icon: 'none' })
+      }
+      return
+    }
+    // 随机菜单：按热量区间搭配菜谱
+    const params = { mode: 'heatLimit', minCal: calRange.value[0], maxCal: calRange.value[1], excludeIngredientIdList: excludeIds.value }
     const res = await callFunction('generateMenu', params)
     const ret = res.result || {}
     if (ret.code === 'OK') {
       result.value = ret.data
+      dishResult.value = null
+      uni.pageScrollTo({ scrollTop: 0, duration: 200 })
     } else if (ret.code === 'NO_MATCH') {
-      // 无匹配菜谱：弹窗引导放宽条件
       uni.showModal({
         title: '暂无符合条件菜谱',
-        content: ret.message || '请放宽筛选条件（取消部分忌口或扩大热量区间）',
+        content: ret.message || '请放宽忌口条件（取消部分忌口或扩大热量区间）',
         showCancel: false,
         confirmText: '知道了',
         confirmColor: '#6FBF73'
@@ -206,7 +346,28 @@ async function generate() {
       uni.showToast({ title: ret.message || '生成失败，请稍后再试', icon: 'none' })
     }
   } catch (e) {
-    console.error('generateMenu 调用失败', e)
+    console.error('[generate] catch 错误:', e)
+    uni.showToast({ title: (e && e.errMsg) || '网络异常，请稍后再试', icon: 'none' })
+  } finally {
+    loading.value = false
+  }
+}
+
+// ---- 随机运动：云端按体重随机返回一项运动 ----
+async function randomExercise() {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const res = await callFunction('exerciseService', { action: 'random' })
+    const ret = res.result || {}
+    if (ret.code === 'OK') {
+      exerciseResult.value = ret.data
+      uni.pageScrollTo({ scrollTop: 0, duration: 200 })
+    } else {
+      uni.showToast({ title: ret.message || '随机失败，请稍后再试', icon: 'none' })
+    }
+  } catch (e) {
+    console.error('[randomExercise] 错误:', e)
     uni.showToast({ title: '网络异常，请稍后再试', icon: 'none' })
   } finally {
     loading.value = false
@@ -215,119 +376,186 @@ async function generate() {
 </script>
 
 <style lang="scss" scoped>
+/* 精确对齐 UI 设计稿 (UI_design.html) 色值与间距 */
 .page {
   min-height: 100vh;
   background: var(--ld-bg);
-  padding: 24rpx 24rpx 0;
+  padding: 28rpx 32rpx 0;
+  box-sizing: border-box;
 }
 
-/* 顶部分段切换 */
+/* 顶部分段控制：浅灰底 + 白色浮起激活项 */
 .seg {
   display: flex;
+  background: color-mix(in srgb, var(--ld-text-3) 16%, transparent);
+  border-radius: 24rpx;
   padding: 8rpx;
-  border-radius: 999rpx;
-  margin-bottom: 24rpx;
+  margin-bottom: 28rpx;
 
   .seg-item {
     flex: 1;
     text-align: center;
+    font-size: 22rpx;
+    white-space: nowrap;
     padding: 16rpx 0;
-    font-size: 26rpx;
+    border-radius: 18rpx;
     color: var(--ld-text-2);
-    border-radius: 999rpx;
+    font-weight: 600;
     transition: all 0.2s;
 
     &.on {
-      background: var(--ld-primary);
-      color: #fff;
-      font-weight: 600;
+      background: var(--ld-card);
+      color: var(--ld-primary-dark);
+      box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
     }
   }
 }
 
-/* 热量区间卡片 */
+/* 模式面板：卡片 + 次要元素总高度固定，保证主按钮位置一致 */
+.panel {
+  min-height: 528rpx;
+}
+
+/* === 通用卡 === */
+.label {
+  font-size: 23rpx;
+  font-weight: 700;
+  color: var(--ld-text-2);
+  letter-spacing: 0.4rpx;
+  margin-bottom: 20rpx;
+}
+
+/* === 热量卡片 / 随机卡片：统一高度 === */
+.cal-card,
+.random-card {
+  box-sizing: border-box;
+  min-height: 388rpx;
+  background: var(--ld-card);
+  border-radius: var(--ld-radius-lg);
+  box-shadow: 0 8rpx 28rpx rgba(60, 80, 50, 0.06);
+  margin-bottom: 28rpx;
+}
+
 .cal-card {
   padding: 32rpx;
-  margin-bottom: 24rpx;
-
-  .label {
-    font-size: 26rpx;
-    font-weight: 600;
-    color: var(--ld-text);
-    margin-bottom: 16rpx;
-  }
-
-  .kcal-big {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 12rpx;
-
-    .num {
-      font-size: 56rpx;
-      font-weight: 800;
-      color: var(--ld-primary-dark);
-    }
-    .sep { color: var(--ld-text-3); }
-    .unit { font-size: 24rpx; color: var(--ld-text-3); }
-  }
-
-  .kcal-sub {
-    text-align: center;
-    font-size: 23rpx;
-    color: var(--ld-text-3);
-    margin: 8rpx 0 16rpx;
-  }
-
-  .ticks {
-    display: flex;
-    justify-content: space-between;
-    font-size: 21rpx;
-    color: var(--ld-text-3);
-    margin-top: 8rpx;
-  }
 }
 
-/* 筛选按钮行 */
-.filter-row {
-  margin-bottom: 24rpx;
+.kcal-big {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 16rpx;
+  margin-bottom: 8rpx;
 
-  .filter-btn {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 8rpx;
-    padding: 16rpx 32rpx;
-    border-radius: 999rpx;
-    font-size: 26rpx;
-    color: var(--ld-text);
-
-    .dot {
-      position: absolute;
-      top: 8rpx;
-      right: 8rpx;
-      width: 14rpx;
-      height: 14rpx;
-      border-radius: 50%;
-      background: var(--ld-danger);
-    }
+  .num {
+    font-size: 60rpx;
+    font-weight: 800;
+    color: var(--ld-primary-dark);
+    letter-spacing: -1rpx;
   }
-
-  .filter-hint {
-    display: block;
-    margin-top: 12rpx;
-    font-size: 23rpx;
-    color: var(--ld-text-3);
-
-    .em { color: var(--ld-primary-dark); font-weight: 600; }
-  }
+  .sep { color: var(--ld-text-3); }
+  .unit { font-size: 24rpx; color: var(--ld-text-3); font-weight: 600; }
 }
 
-/* 完全随机说明卡 */
-.random-card {
-  padding: 52rpx 36rpx;
+.kcal-sub {
   text-align: center;
-  margin-bottom: 24rpx;
+  font-size: 23rpx;
+  color: var(--ld-text-3);
+  margin-bottom: 32rpx;
+}
+
+.slider-wrap {
+  padding: 0 4rpx;
+
+  /* 兜底：强制 Wot UI 滑块可见 */
+  :deep(.wd-slider) {
+    height: 68rpx !important;
+  }
+  :deep(.wd-slider__bar-wrapper) {
+    background: rgba(165, 173, 161, 0.28) !important;
+  }
+  :deep(.wd-slider__bar) {
+    background: linear-gradient(90deg, #6FBF73, #4E9A54) !important;
+    height: 6rpx !important;
+  }
+  :deep(.wd-slider__button) {
+    width: 36rpx !important;
+    height: 36rpx !important;
+    background: var(--ld-card) !important;
+    border: 6rpx solid var(--ld-primary) !important;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.18) !important;
+  }
+}
+
+.ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 21rpx;
+  color: var(--ld-text-3);
+  padding: 4rpx 4rpx 0;
+}
+
+/* 次要元素区：固定高度，三种模式总高一致 */
+.secondary {
+  min-height: 140rpx;
+}
+
+/* === 筛选按钮 === */
+.filter-btn {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  width: 100%;
+  height: 96rpx;
+  border-radius: 26rpx;
+  border: 3rpx dashed color-mix(in srgb, var(--ld-primary) 55%, transparent);
+  background: var(--ld-primary-soft);
+  color: var(--ld-primary-dark);
+  font-size: 26rpx;
+  font-weight: 700;
+
+  &.on { border-style: solid; }
+
+  .fi { font-size: 28rpx; }
+
+  .dot {
+    position: absolute;
+    top: -10rpx;
+    right: -10rpx;
+    width: 22rpx;
+    height: 22rpx;
+    background: var(--ld-danger);
+    border-radius: 50%;
+    border: 4rpx solid var(--ld-bg);
+  }
+}
+
+.filter-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44rpx;
+  font-size: 23rpx;
+  text-align: center;
+  color: var(--ld-text-2);
+
+  em { font-style: normal; color: var(--ld-danger); font-weight: 700; }
+
+  /* 无选中时仍占位，保证按钮不位移 */
+  &.hide { visibility: hidden; }
+}
+
+/* === 完全随机 / 随机运动 模式 === */
+.random-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+  text-align: center;
 
   .dice {
     width: 120rpx;
@@ -351,108 +579,229 @@ async function generate() {
   }
 }
 
-/* 提示条 */
 .cause-note {
+  box-sizing: border-box;
+  height: 140rpx;
   display: flex;
   align-items: center;
-  gap: 10rpx;
-  font-size: 23rpx;
-  color: var(--ld-text-2);
+  gap: 16rpx;
+  padding: 24rpx 26rpx;
+  border-radius: var(--ld-radius-md);
   background: var(--ld-primary-soft);
-  border-radius: var(--ld-radius-sm);
-  padding: 18rpx 24rpx;
-  margin-bottom: 24rpx;
-  line-height: 1.5;
+  color: var(--ld-text-2);
+  font-size: 23rpx;
+  line-height: 1.6;
+
+  .cn { font-size: 28rpx; flex-shrink: 0; color: var(--ld-primary-dark); }
 }
 
-/* 结果汇总卡 */
+/* 随机运动：消耗计算过程卡 */
+.ex-calc {
+  padding: 28rpx 32rpx;
+  margin-top: 4rpx;
+
+  .ec-t {
+    display: block;
+    font-size: 24rpx;
+    font-weight: 700;
+    color: var(--ld-text);
+    margin-bottom: 14rpx;
+  }
+
+  .ec-l {
+    display: block;
+    font-size: 22rpx;
+    color: var(--ld-text-2);
+    line-height: 1.7;
+  }
+}
+
+/* === 绿色渐变汇总卡 === */
 .summary {
-  padding: 32rpx;
-  margin-top: 24rpx;
-  margin-bottom: 24rpx;
+  background: linear-gradient(140deg, var(--ld-primary), var(--ld-primary-dark));
+  color: #fff;
+  border-radius: var(--ld-radius-lg);
+  padding: 32rpx 34rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 20rpx 44rpx rgba(111, 191, 115, 0.32);
 
   .top {
     display: flex;
+    align-items: flex-end;
     justify-content: space-between;
-    align-items: center;
-    padding-bottom: 24rpx;
-    border-bottom: 1rpx dashed var(--ld-line);
+    margin-bottom: 28rpx;
 
     .t-l {
-      .big { font-size: 56rpx; font-weight: 800; color: var(--ld-primary-dark); }
-      .s { display: block; font-size: 23rpx; color: var(--ld-text-3); margin-top: 4rpx; }
+      .big { font-size: 54rpx; font-weight: 800; letter-spacing: -1rpx; }
+      .s { display: block; font-size: 23rpx; opacity: 0.9; margin-top: 4rpx; }
     }
 
     .price {
-      font-size: 23rpx;
-      color: var(--ld-text-2);
-      .b { font-size: 32rpx; font-weight: 700; color: var(--ld-gold); margin-left: 6rpx; }
+      font-size: 22rpx;
+      opacity: 0.9;
+      text-align: right;
+
+      b { display: block; font-size: 34rpx; font-weight: 700; }
     }
   }
 
   .macro {
     display: flex;
-    padding-top: 24rpx;
+    gap: 16rpx;
 
     > view {
       flex: 1;
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 22rpx;
+      padding: 16rpx 12rpx;
       text-align: center;
 
-      .s { display: block; font-size: 23rpx; color: var(--ld-text-3); }
-      .b { display: block; font-size: 28rpx; font-weight: 700; color: var(--ld-text); margin-top: 6rpx; }
+      .s { display: block; font-size: 20rpx; opacity: 0.88; margin-bottom: 6rpx; }
+      .b { font-size: 26rpx; }
     }
   }
 }
 
-/* 空状态 */
+/* 生成结果分隔线：与生成按钮拉开距离 */
+.result-divider {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin: 48rpx 4rpx 28rpx;
+
+  .line {
+    flex: 1;
+    height: 1rpx;
+    background: var(--ld-line);
+  }
+
+  .txt {
+    font-size: 23rpx;
+    color: var(--ld-text-3);
+    font-weight: 600;
+    letter-spacing: 0.6rpx;
+    flex-shrink: 0;
+  }
+}
+
+.list-label {
+  font-size: 24rpx;
+  color: var(--ld-text-2);
+  font-weight: 700;
+  margin: 0 4rpx 20rpx;
+}
+
+/* === 空状态 === */
 .empty {
   text-align: center;
   padding: 72rpx 40rpx 24rpx;
 
-  .ico { font-size: 68rpx; margin-bottom: 20rpx; opacity: 0.85; }
-  .b { display: block; font-size: 28rpx; font-weight: 700; color: var(--ld-text); }
-  .s {
-    display: block;
-    margin-top: 12rpx;
-    font-size: 23rpx;
-    color: var(--ld-text-2);
-    line-height: 1.7;
-    white-space: pre-line;
+  .ico {
+    width: 120rpx;
+    height: 120rpx;
+    margin: 0 auto 24rpx;
+    border-radius: 64rpx;
+    background: var(--ld-primary-soft);
+    display: grid;
+    place-items: center;
+    font-size: 56rpx;
+    color: var(--ld-primary-dark);
   }
+  .b { display: block; font-size: 28rpx; color: var(--ld-text-2); margin-bottom: 10rpx; }
+  .s { display: block; font-size: 23rpx; color: var(--ld-text-3); line-height: 1.6; }
 }
 
-/* 筛选弹窗 */
+/* === 筛选弹窗 === */
 .modal {
-  padding: 36rpx 32rpx 32rpx;
-
-  .m-head {
-    margin-bottom: 24rpx;
-    .t { display: block; font-size: 30rpx; font-weight: 700; color: var(--ld-text); }
-    .s { display: block; font-size: 23rpx; color: var(--ld-text-2); margin-top: 8rpx; }
-  }
-
-  .m-body {
-    max-height: 560rpx;
-  }
-
-  .m-empty {
-    text-align: center;
-    font-size: 23rpx;
-    color: var(--ld-text-3);
-    padding: 40rpx 0;
-  }
-
-  .m-foot {
-    display: flex;
-    gap: 20rpx;
-    margin-top: 28rpx;
-
-    :deep(.wd-button) { flex: 1; }
-  }
+  padding: 0;
 }
+.m-head {
+  padding: 36rpx 40rpx 12rpx;
 
-:deep(.filter-check) {
+  .t { display: block; font-size: 31rpx; font-weight: 700; color: var(--ld-text); margin-bottom: 10rpx; }
+  .s { display: block; font-size: 23rpx; color: var(--ld-text-2); line-height: 1.6; }
+}
+.m-body {
+  padding: 24rpx 40rpx 8rpx;
+  max-height: 800rpx;
+}
+.checkbox {
   display: flex;
-  padding: 18rpx 4rpx;
+  align-items: center;
+  gap: 22rpx;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid var(--ld-line);
+
+  &:last-child { border-bottom: 0; }
+
+  .box {
+    width: 42rpx;
+    height: 42rpx;
+    border-radius: 12rpx;
+    border: 3rpx solid var(--ld-text-3);
+    display: grid;
+    place-items: center;
+    color: transparent;
+    font-size: 24rpx;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+
+  &.on {
+    .box {
+      background: var(--ld-primary);
+      border-color: var(--ld-primary);
+      color: #fff;
+    }
+    .main { font-weight: 700; color: var(--ld-primary-dark); }
+  }
+
+  .ct { flex: 1; min-width: 0; }
+  .main { display: block; font-size: 27rpx; color: var(--ld-text); }
+  .hint { display: block; font-size: 21rpx; color: var(--ld-text-3); margin-top: 4rpx; }
+}
+.m-empty {
+  text-align: center;
+  font-size: 23rpx;
+  color: var(--ld-text-3);
+  padding: 40rpx 0;
+}
+.m-foot {
+  display: flex;
+  gap: 22rpx;
+  padding: 32rpx 40rpx 36rpx;
+
+  :deep(.wd-button) { flex: 1; }
+}
+/* ===== 随机食材结果 ===== */
+.dish-summary {
+  margin-top: 20rpx;
+  padding: 32rpx;
+  border-radius: var(--ld-radius-md);
+  background: linear-gradient(135deg, var(--ld-primary) 0%, var(--ld-primary-dark) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+.dish-name { font-size: 40rpx; font-weight: 800; color: #fff; }
+.dish-cal { font-size: 24rpx; color: rgba(255, 255, 255, 0.85); }
+.dish-ings {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+  margin-top: 12rpx;
+}
+.di {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 24rpx;
+  border-radius: 20rpx;
+  background: var(--ld-card);
+  border: 1rpx solid var(--ld-line);
+
+  .di-n { font-size: 28rpx; font-weight: 600; color: var(--ld-text); }
+  .di-w { font-size: 22rpx; color: var(--ld-text-3); }
 }
 </style>

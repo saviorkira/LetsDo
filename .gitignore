@@ -4,3 +4,5 @@ unpackage/
 .hbuilderx/
 .DS_Store
 *.local
+private.*.key
+tmp_*.json
