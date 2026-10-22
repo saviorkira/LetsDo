@@ -18,7 +18,7 @@
     {
       "path": "pages/recipe/library",
       "style": {
-        "navigationBarTitleText": "菜谱库",
+        "navigationBarTitleText": "菜品库",
         "navigationBarBackgroundColor": "@navBgColor",
         "navigationBarTextStyle": "@navTxtStyle",
         "backgroundColor": "@bgColor",
@@ -28,7 +28,16 @@
     {
       "path": "pages/recipe/detail",
       "style": {
-        "navigationBarTitleText": "菜谱详情",
+        "navigationBarTitleText": "菜品详情",
+        "navigationBarBackgroundColor": "@navBgColor",
+        "navigationBarTextStyle": "@navTxtStyle",
+        "backgroundColor": "@bgColor"
+      }
+    },
+    {
+      "path": "pages/ingredient/detail",
+      "style": {
+        "navigationBarTitleText": "食材详情",
         "navigationBarBackgroundColor": "@navBgColor",
         "navigationBarTextStyle": "@navTxtStyle",
         "backgroundColor": "@bgColor"

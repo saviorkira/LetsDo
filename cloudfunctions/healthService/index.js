@@ -140,8 +140,9 @@ exports.main = async (event) => {
     const log = findLog(profile, date) || {}
     const intake = Number(log.intake) || 0
     const expenditure = Number(log.expenditure) || 0
-    const diff = hasProfile ? intake - bmr : 0
-    const remaining = Math.max(0, diff - expenditure)
+    // 热量盈余 = 摄入 − 今日消耗 − 基础代谢
+    const diff = hasProfile ? intake - bmr - expenditure : 0
+    const remaining = Math.max(0, diff)
 
     let recommend = null
     if (hasProfile && intake > 0) {

@@ -1,9 +1,15 @@
 // 文件路径：cloudfunctions/recipeService/index.js
 // 云函数：recipeService 菜谱查询服务
 // 入参 action：
-//   list          菜谱库列表（含实时计算的单份热量）
-//   detail        菜谱配方详情（展开食材明细 + 整套营养汇总），需 recipeId
-//   filterOptions 忌口筛选用食材列表（_id + name）
+//   list             菜谱库列表（含实时计算的单份热量）
+//   detail           菜谱配方详情（展开食材明细 + 整套营养汇总），需 recipeId
+//   filterOptions    忌口筛选用食材列表（_id + name）
+//   listIngredients  食材库列表（菜品库食材 Tab 用）
+//   ingredientDetail 食材详情（营养/价格 + 用到它的菜品列表），需 ingredientId
+//   randomDish       随机食材组合
+//
+// 【价格口径】ingredient.price 为「元/斤（500g）」；
+// 计算食材成本时统一按 weight/500 换算（此前误按 weight/100，导致菜品价格放大 5 倍）
 const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
@@ -33,9 +39,10 @@ function calcRecipe(recipe, ingredientMap) {
   for (const item of recipe.ingredientList || []) {
     const ing = ingredientMap[item.ingredientId]
     if (!ing) continue
-    const ratio = item.weight / 100 // 统一基准：每 100g
+    const ratio = item.weight / 100 // 营养基准：每 100g
+    const priceRatio = item.weight / 500 // 价格基准：元/斤（500g）
     totalCalories += ing.calories * ratio
-    totalPrice += ing.price * ratio
+    totalPrice += ing.price * priceRatio
     totalProtein += ing.protein * ratio
     totalFat += ing.fat * ratio
     totalCarbohydrate += ing.carbohydrate * ratio
@@ -45,8 +52,8 @@ function calcRecipe(recipe, ingredientMap) {
       weight: item.weight,
       caloriesPer100g: ing.calories,
       calories: ing.calories * ratio,
-      pricePer100g: ing.price,
-      price: ing.price * ratio,
+      pricePer100g: (Number(ing.price) || 0) / 5,
+      price: ing.price * priceRatio,
       proteinPer100g: ing.protein,
       protein: ing.protein * ratio,
       fatPer100g: ing.fat,
@@ -159,34 +166,203 @@ exports.main = async (event) => {
     }
   }
 
-  // ---- 随机食材：随机抽 2~4 种食材（不含佐料），按做法词组合出菜名 ----
-  if (action === 'randomDish') {
-    const ingredients = await getAll('ingredient')
-    const pool = ingredients.filter(i => !i.isCondiment && i.name)
-    if (pool.length < 2) return { code: 'NO_DATA', message: '食材库数据不足' }
-
-    // 洗牌后抽 2~4 种
-    const shuffled = pool.slice().sort(() => Math.random() - 0.5)
-    const count = Math.min(2 + Math.floor(Math.random() * 3), pool.length)
-    const picked = shuffled.slice(0, count)
-
-    const list = picked.map(i => {
-      const weight = (8 + Math.floor(Math.random() * 8)) * 10 // 80~150g，10 的倍数
-      const ratio = weight / 100
-      return { ingredientId: i._id, name: i.name, weight, calories: (Number(i.calories) || 0) * ratio }
-    })
-    const totalCalories = list.reduce((s, x) => s + x.calories, 0)
-
-    // 菜名：做法词 + 主食材 + （炒/配 + 次食材）
-    const METHODS = ['蒜蓉', '清炒', '香煎', '红烧', '凉拌', '白灼', '酱爆', '上汤', '葱爆', '干煸']
-    const method = METHODS[Math.floor(Math.random() * METHODS.length)]
-    const main = list[0]
-    const second = list[1]
-    const joiner = Math.random() < 0.5 ? '炒' : '配'
-    const dishName = second ? `${method}${main.name}${joiner}${second.name}` : `${method}${main.name}`
-
-    return { code: 'OK', data: { dishName, ingredientList: list, totalCalories } }
+  // ---- 一次性迁移：imageUrl 的 https CDN 地址 → cloud:// fileID（小程序免域名白名单，绕开存储桶公有读限制） ----
+  if (action === 'migrateImageUrl') {
+    const _ = db.command
+    const res = await db.collection('ingredient').where({ imageUrl: _.neq('') }).limit(100).get()
+    let n = 0
+    await Promise.all(res.data.map(async d => {
+      const m = String(d.imageUrl).match(/\.tcb\.qcloud\.la\/(.+)$/)
+      if (!m) return
+      await db.collection('ingredient').doc(d._id).update({
+        data: { imageUrl: 'cloud://letsdoenv-d1gndgyhv2f9d22fb.6c65-letsdoenv-d1gndgyhv2f9d22fb-1507384605/' + m[1] }
+      })
+      n++
+    }))
+    return { code: 'OK', migrated: n }
   }
 
-  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / filterOptions / randomDish' }
+  // ---- 随机食材：主食基底 + 配菜（不含佐料），组合出菜名；dishType 可选 noodle/rice/sandwich/stirfry ----
+  if (action === 'randomDish') {
+    const { dishType } = event || {}
+    const ingredients = await getAll('ingredient')
+    // 真主食基底（排除面粉/淀粉这类原材料）
+    const NOT_STAPLE_BASE = ['面粉', '淀粉']
+    let staplePool = ingredients.filter(i => i.isStaple && i.name && !NOT_STAPLE_BASE.includes(i.name))
+    // 配菜池：排除佐料/主食，炒菜模式额外排除饮品/汤品/甜品
+    const DRINK_OR_SOUP = ['豆浆', '牛奶', '酸奶', '果汁', '汤', '冰淇淋', '蜂蜜', '糖浆']
+    const sidePool = ingredients.filter(i => !i.isCondiment && !i.isStaple && i.name && !DRINK_OR_SOUP.some(d => i.name.includes(d)))
+
+    const NOODLE_STAPLES = ['面条', '手擀面', '乌冬面', '荞麦面', '意大利面', '粉丝']
+    const BREAD_STAPLES = ['吐司面包', '全麦面包']
+    if (dishType === 'noodle') staplePool = staplePool.filter(i => NOODLE_STAPLES.includes(i.name))
+    else if (dishType === 'rice') staplePool = staplePool.filter(i => i.name === '米饭')
+    else if (dishType === 'sandwich') staplePool = staplePool.filter(i => BREAD_STAPLES.includes(i.name))
+
+    const isStirfry = dishType === 'stirfry' // 炒菜：无主食，纯配菜组合
+    if (!sidePool.length || (!isStirfry && !staplePool.length)) return { code: 'NO_DATA', message: '食材库数据不足' }
+
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)]
+
+    // 主食基底 1 种（炒菜模式除外）
+    const staple = isStirfry ? null : pick(staplePool)
+
+    // 配菜洗牌后抽取（炒菜 2~4 种，其余 1~4 种）
+    const shuffled = sidePool.slice().sort(() => Math.random() - 0.5)
+    const sideCount = isStirfry ? 2 + Math.floor(Math.random() * 3) : 1 + Math.floor(Math.random() * 4)
+    const sides = shuffled.slice(0, Math.min(sideCount, shuffled.length))
+
+    const mk = (i, w) => {
+      const r = w / 100
+      return {
+        ingredientId: i._id,
+        name: i.name,
+        weight: w,
+        calories: (Number(i.calories) || 0) * r,
+        protein: (Number(i.protein) || 0) * r,
+        fat: (Number(i.fat) || 0) * r,
+        carbohydrate: (Number(i.carbohydrate) || 0) * r,
+        price: (Number(i.price) || 0) * (w / 500), // 价格基准：元/斤
+        imageUrl: i.imageUrl || ''
+      }
+    }
+    const list = sides.map(i => mk(i, (8 + Math.floor(Math.random() * 8)) * 10)) // 配菜 80~150g
+    if (staple) list.push(mk(staple, (15 + Math.floor(Math.random() * 16)) * 10)) // 主食 150~300g
+    const totalCalories = list.reduce((s, x) => s + x.calories, 0)
+    const totalProtein = list.reduce((s, x) => s + x.protein, 0)
+    const totalFat = list.reduce((s, x) => s + x.fat, 0)
+    const totalCarbohydrate = list.reduce((s, x) => s + x.carbohydrate, 0)
+    const totalPrice = list.reduce((s, x) => s + x.price, 0)
+
+    // 菜名：按主食类型分做法词，避免「上汤…馒头」这类不通顺的组合
+    const MIX_STAPLES = ['米饭', '面条', '手擀面', '乌冬面', '荞麦面', '意大利面', '粉丝']
+    const MIX_METHODS = ['蒜蓉', '清炒', '香煎', '红烧', '凉拌', '酱爆', '葱爆', '干煸']
+    const SIDE_METHODS = ['椒盐', '蜜汁', '香煎', '蒜香', '奶香', '葱香', '焦香']
+    const STAPLE_WORD = { '米饭': '盖饭', '面条': '拌面', '手擀面': '拌面', '乌冬面': '拌面', '荞麦面': '拌面', '意大利面': '意面', '粉丝': '粉丝煲', '馒头': '馒头片', '吐司面包': '吐司', '全麦面包': '全麦吐司' }
+    const CN_NUM = ['二', '三', '四']
+    let dishName
+    if (isStirfry) {
+      const method = pick(MIX_METHODS)
+      dishName = sides.length === 1 ? `${method}${sides[0].name}` : `${method}${sides[0].name}炒${sides[1].name}`
+    } else if (dishType === 'sandwich') {
+      const inner = sides.slice(0, 2).map(s => s.name).join('')
+      dishName = `${inner}${STAPLE_WORD[staple.name] ? STAPLE_WORD[staple.name].replace('吐司', '') : ''}三明治`
+    } else if (MIX_STAPLES.includes(staple.name)) {
+      const stapleWord = STAPLE_WORD[staple.name] || staple.name
+      const method = pick(MIX_METHODS)
+      if (sides.length === 1) dishName = `${method}${sides[0].name}${stapleWord}`
+      else if (sides.length === 2) dishName = `${method}${sides[0].name}${Math.random() < 0.5 ? '炒' : '配'}${sides[1].name}${stapleWord}`
+      else dishName = `${method}${sides[0].name}等${CN_NUM[sides.length - 2]}拼${stapleWord}`
+    } else {
+      const stapleWord = STAPLE_WORD[staple.name] || staple.name
+      const method = pick(SIDE_METHODS)
+      const rest = sides.slice(1)
+      const extra = rest.length ? '、' + rest.slice(0, 2).map(s => s.name).join('、') + (rest.length > 2 ? '等' : '') : ''
+      dishName = `${method}${stapleWord}配${sides[0].name}${extra}`
+    }
+
+    return {
+      code: 'OK',
+      data: {
+        dishName,
+        ingredientList: list.map(x => ({ ...x, calories: Math.round(x.calories), protein: +x.protein.toFixed(1), fat: +x.fat.toFixed(1), carbohydrate: +x.carbohydrate.toFixed(1), price: +x.price.toFixed(1) })),
+        summary: {
+          totalCalories: Math.round(totalCalories),
+          totalProtein: +totalProtein.toFixed(1),
+          totalFat: +totalFat.toFixed(1),
+          totalCarbohydrate: +totalCarbohydrate.toFixed(1),
+          totalPrice: +totalPrice.toFixed(1),
+          ingredientCount: list.length,
+          totalWeight: list.reduce((s, x) => s + x.weight, 0)
+        }
+      }
+    }
+  }
+
+  // ---- 食材库列表（菜品库 Tab 用）----
+  if (action === 'listIngredients') {
+    const { keyword, category } = event || {}
+    let all = await getAll('ingredient')
+    // 分类筛选：meat 肉类 / veg 蔬菜 / staple 主食 / condiment 调料 / drink 饮品 / seafood 海鲜 / other 其他
+    const groups = {
+      meat: i => !i.isStaple && !i.isCondiment && ['猪肉','牛肉','羊肉','鸭肉','鸡肉','火腿','香肠','培根','五花肉','里脊','鸡腿','鸡翅','鸡肉','火腿','香肠','培根'].some(k => i.name.includes(k)) || ['meat','chicken','beef','pork','lamb','duck','bacon','ham','sausage'].some(k => String(i.imageUrl || '').toLowerCase().includes(k)),
+      seafood: i => ['鱼','虾','蟹','贝','鱿','蚌','扇贝','生蚝','三文鱼','带鱼','鳕鱼','草鱼','鲈鱼','基围虾','虾仁','鱿鱼'].some(k => i.name.includes(k)) || ['fish','shrimp','cod','salmon','carp','squid'].some(k => String(i.imageUrl || '').toLowerCase().includes(k)),
+      veg: i => !i.isStaple && !i.isCondiment && !i.isDrink,
+      staple: i => !!i.isStaple,
+      condiment: i => !!i.isCondiment,
+      drink: i => !!i.isDrink
+    }
+    if (category && groups[category]) all = all.filter(groups[category])
+    const kw = String(keyword || '').trim().toLowerCase()
+    if (kw) all = all.filter(i => (i.name || '').toLowerCase().includes(kw))
+    return {
+      code: 'OK',
+      data: all.map(i => ({
+        _id: i._id,
+        name: i.name,
+        imageUrl: i.imageUrl || '',
+        calories: Number(i.calories) || 0,
+        protein: Number(i.protein) || 0,
+        fat: Number(i.fat) || 0,
+        carbohydrate: Number(i.carbohydrate) || 0,
+        price: Number(i.price) || 0,
+        isCondiment: !!i.isCondiment,
+        isStaple: !!i.isStaple
+      }))
+    }
+  }
+
+  // ---- 食材详情：营养/价格 + 用到它的菜品列表（食材详情页用）----
+  if (action === 'ingredientDetail') {
+    const { ingredientId } = event || {}
+    if (!ingredientId || typeof ingredientId !== 'string' || ingredientId.length > 64) {
+      return { code: 'INVALID_PARAM', message: 'ingredientId 非法' }
+    }
+    const ingRes = await db.collection('ingredient').doc(ingredientId).get().catch(() => null)
+    if (!ingRes || !ingRes.data) {
+      return { code: 'NOT_FOUND', message: '食材不存在' }
+    }
+    const [ingredients, recipes] = await Promise.all([getAll('ingredient'), getAll('recipe')])
+    const ingredientMap = {}
+    for (const x of ingredients) ingredientMap[x._id] = x
+
+    const i = ingRes.data
+    const recipeList = recipes
+      .filter(r => (r.ingredientList || []).some(it => it.ingredientId === ingredientId))
+      .map(r => {
+        const calc = calcRecipe(r, ingredientMap)
+        const usage = (r.ingredientList || []).find(it => it.ingredientId === ingredientId)
+        return {
+          _id: r._id,
+          name: r.name,
+          imageUrl: r.imageUrl || '',
+          desc: r.desc || '',
+          totalCalories: Math.round(calc.totalCalories),
+          ingredientWeight: usage ? usage.weight : 0
+        }
+      })
+
+    return {
+      code: 'OK',
+      data: {
+        _id: i._id,
+        name: i.name,
+        imageUrl: i.imageUrl || '',
+        calories: Number(i.calories) || 0,
+        protein: Number(i.protein) || 0,
+        fat: Number(i.fat) || 0,
+        carbohydrate: Number(i.carbohydrate) || 0,
+        price: Number(i.price) || 0,               // 元/斤（500g）
+        pricePer100g: (Number(i.price) || 0) / 5,
+        nutritionDesc: i.nutritionDesc || '',
+        isCondiment: !!i.isCondiment,
+        isStaple: !!i.isStaple,
+        isDrink: !!i.isDrink,
+        isVegetable: !!i.isVegetable,
+        recipeList
+      }
+    }
+  }
+
+  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / listIngredients / ingredientDetail / filterOptions / randomDish' }
 }

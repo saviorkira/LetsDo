@@ -11,6 +11,9 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+// 可自由布置（拖动/缩放）的槽位：家具与宠物
+const ARRANGE_SLOTS = ['furniture', 'pet']
+
 // 装扮商店清单（静态数据，价格单位：积分）
 // 槽位说明：top/hat/acc/pants/gloves 为身体部位（单件），pet/furniture/bg 可多件
 const SHOP_ITEMS = [
@@ -62,6 +65,13 @@ const SHOP_ITEMS = [
   { id: 'fur_window', slot: 'furniture', name: '小窗户', price: 15, tip: '看看外面的风景' },
   { id: 'fur_clock', slot: 'furniture', name: '挂钟', price: 8, tip: '滴答滴答，时光流转' },
   { id: 'fur_bookshelf', slot: 'furniture', name: '书架', price: 18, tip: '书中自有黄金屋' },
+  // 墙面装饰（同样归入家具槽位，可自由拖动摆放）
+  { id: 'fur_wallstar', slot: 'furniture', name: '星空顶', price: 36, tip: '躺着看星星入睡' },
+  { id: 'fur_painting', slot: 'furniture', name: '风景挂画', price: 16, tip: '给白墙添点颜色' },
+  { id: 'fur_photo', slot: 'furniture', name: '照片墙', price: 14, tip: '记录每天的小确幸' },
+  { id: 'fur_cloud', slot: 'furniture', name: '云朵灯', price: 24, tip: '一朵会发光的云' },
+  { id: 'fur_windbell', slot: 'furniture', name: '小风铃', price: 12, tip: '风一吹就叮当作响' },
+  { id: 'fur_tapestry', slot: 'furniture', name: '编织挂毯', price: 20, tip: '手作的温柔质感' },
   // 背景
   { id: 'bg_forest', slot: 'bg', name: '森林小屋', price: 10, tip: '被大自然包围' },
   { id: 'bg_beach', slot: 'bg', name: '海边小屋', price: 12, tip: '听海浪的声音' },
@@ -128,17 +138,59 @@ function figureLabel(gender, score) {
   return '圆滚滚'
 }
 
-// 心情提示语：按今日热量收支
+// 心情提示语：按今日热量收支，每类多条随机，提升对话新鲜感
 function moodText(profile, bmr, hasProfile) {
-  if (!hasProfile) return '先去「我的」录入身体数据，我才能长出来哦'
+  if (!hasProfile) return pick([
+    '先去「我的」录入身体数据，我才能长出来哦',
+    '给我一组身高体重，我就能从蛋里孵出来啦',
+    '数据还没填，暂时只能以蛋的形态和你见面 >_<'
+  ])
   const date = todayStr()
   const logs = Array.isArray(profile.healthLog) ? profile.healthLog : []
   const log = logs.find(l => l && l.date === date)
-  if (!log || !(Number(log.intake) > 0)) return ''
+
+  // 今日完全没记录热量
+  if (!log || !(Number(log.intake) > 0)) {
+    return pick([
+      '今天还没记录热量哦，记得去「我的」填一下呀',
+      '打卡记录一下今天吃了什么，我会更了解你的',
+      '早餐吃了吗？去「我的」录入下热量吧～',
+      '今天也要好好吃饭呀，别忘了记录热量哦',
+      '我还不知道你今天吃了啥，来「我的」告诉我吧'
+    ])
+  }
+
   const bal = Number(log.intake) - bmr - (Number(log.expenditure) || 0)
-  if (bal > 300) return '今天吃得有点多，带我去动一动吧'
-  if (bal < -300) return '今天消耗不少，记得补充能量呀'
-  return '今天收支平衡，棒棒哒'
+  // 吃得偏多 → 建议运动
+  if (bal > 300) return pick([
+    '今天吃得有点多，带我去动一动吧',
+    '热量盈余啦，跑两步或者做点轻运动？',
+    '吃多了也没事，接下来的运动帮你抵掉',
+    '肚子饱饱的，身体却有点重，带我出门逛逛',
+    '摄入超了一点点，适合做 20 分钟轻运动'
+  ])
+  // 消耗偏大 → 提醒补充
+  if (bal < -300) return pick([
+    '今天消耗不少，记得补充能量呀',
+    '赤字有点大，要不要吃点好的犒劳自己',
+    '消耗超多！快吃点东西把能量补回来',
+    '今天运动量够了，现在轮到你被食物治愈',
+    '热量缺口有点大，别让自己饿坏啦'
+  ])
+  // 收支平衡
+  return pick([
+    '今天收支平衡，棒棒哒',
+    '吃得刚刚好，身体状态很稳',
+    '热量收支健康，继续保持呀',
+    '这餐吃得很克制，为你点赞',
+    '今天表现满分，明天继续加油'
+  ])
+}
+
+// 随机取数组中一条，避免每次打开形象页都看到同一句话
+function pick(arr) {
+  if (!Array.isArray(arr) || !arr.length) return ''
+  return arr[Math.floor(Math.random() * arr.length)]
 }
 
 // 计算人物属性（5 维）
@@ -200,13 +252,13 @@ const OUT_PLACES = [
 
 // Boss 配置：七大罪，傲慢最强（需要总评最高）
 const BOSSES = [
-  { id: 'boss_pride', name: '傲慢魔王', icon: '👑', need: { power: 25, agility: 20, intelligence: 20, charm: 22, stamina: 25 }, reward: { type: 'hat', id: 'rare_crown' }, desc: '七大罪之首，最强魔王' },
-  { id: 'boss_wrath', name: '暴怒魔王', icon: '😡', need: { power: 20, agility: 15 }, reward: { type: 'gloves', id: 'rare_gauntlet' }, desc: '怒火燃烧一切' },
-  { id: 'boss_lust', name: '色欲魔王', icon: '😈', need: { charm: 20, agility: 16 }, reward: { type: 'acc', id: 'rare_rose' }, desc: '魅惑众生的幻影' },
-  { id: 'boss_greed', name: '贪婪魔王', icon: '🤑', need: { intelligence: 18, charm: 15 }, reward: { type: 'acc', id: 'rare_goldbag' }, desc: '永远填不满的欲望' },
-  { id: 'boss_envy', name: '嫉妒魔王', icon: '🐍', need: { intelligence: 16, charm: 16 }, reward: { type: 'furniture', id: 'rare_mirror' }, desc: '映出他人拥有的一切' },
-  { id: 'boss_gluttony', name: '暴食魔王', icon: '🍔', need: { power: 15, intelligence: 12 }, reward: { type: 'pet', id: 'rare_dragon' }, desc: '吞噬无尽的美食' },
-  { id: 'boss_sloth', name: '懒惰魔王', icon: '😴', need: { power: 12, stamina: 12 }, reward: { type: 'acc', id: 'rare_sword' }, desc: '沉睡千年的懒人' }
+  { id: 'boss_pride', name: '傲慢', icon: '👑', need: { power: 25, agility: 20, intelligence: 20, charm: 22, stamina: 25 }, reward: { type: 'hat', id: 'rare_crown' }, desc: '七大罪之首，最强Boss' },
+  { id: 'boss_wrath', name: '暴怒', icon: '😡', need: { power: 20, agility: 15 }, reward: { type: 'gloves', id: 'rare_gauntlet' }, desc: '怒火燃烧一切' },
+  { id: 'boss_lust', name: '色欲', icon: '😈', need: { charm: 20, agility: 16 }, reward: { type: 'acc', id: 'rare_rose' }, desc: '魅惑众生的幻影' },
+  { id: 'boss_greed', name: '贪婪', icon: '🤑', need: { intelligence: 18, charm: 15 }, reward: { type: 'acc', id: 'rare_goldbag' }, desc: '永远填不满的欲望' },
+  { id: 'boss_envy', name: '嫉妒', icon: '🐍', need: { intelligence: 16, charm: 16 }, reward: { type: 'furniture', id: 'rare_mirror' }, desc: '映出他人拥有的一切' },
+  { id: 'boss_gluttony', name: '暴食', icon: '🍔', need: { power: 15, intelligence: 12 }, reward: { type: 'pet', id: 'rare_dragon' }, desc: '吞噬无尽的美食' },
+  { id: 'boss_sloth', name: '懒惰', icon: '😴', need: { power: 12, stamina: 12 }, reward: { type: 'acc', id: 'rare_sword' }, desc: '沉睡千年的懒人' }
 ]
 
 // Boss 专属稀有物品（挑战成功必掉，商店买不到）
@@ -233,10 +285,10 @@ const DROP_ITEMS = [
 // 全部可装备物品（商店 + Boss 稀有 + 出门掉落）
 const ALL_ITEMS = SHOP_ITEMS.concat(RARE_ITEMS, DROP_ITEMS)
 
-// 判断某槽位是否装备了某件物品（兼容旧的单件 string 格式和新的多件 array 格式）
+// 判断某槽位是否装备了某件物品（兼容单件 string、多件 array，以及家具的 {id,...} 对象格式）
 function isEquippedSlot(equipped, slot, id) {
   const v = equipped[slot]
-  if (Array.isArray(v)) return v.includes(id)
+  if (Array.isArray(v)) return v.some(e => (e && typeof e === 'object' ? e.id : e) === id)
   return v === id
 }
 
@@ -401,19 +453,21 @@ async function handle(event) {
     const equipped = Object.assign({}, profile.avatarEquip || {})
 
     if (['top', 'hat', 'acc', 'pants', 'gloves'].includes(item.slot)) {
-      // 身体部位：单件，替换或卸下
-      if (equipped[item.slot] === item.id) {
+      // 身体部位：单件，替换或卸下（兼容旧版数组格式数据）
+      const cur = equipped[item.slot]
+      const isOn = Array.isArray(cur) ? cur.includes(item.id) : cur === item.id
+      if (isOn) {
         delete equipped[item.slot]
       } else {
         equipped[item.slot] = item.id
       }
     } else {
-      // 宠物/家具/背景：多件数组
+      // 宠物/家具/背景：多件数组（家具与宠物元素为 {id,x,y,scale} 布置对象，其余为 id 字符串）
       const cur = equipped[item.slot]
       const arr = Array.isArray(cur) ? cur.slice() : (cur ? [cur] : [])
-      const idx = arr.indexOf(item.id)
+      const idx = arr.findIndex(e => (e && typeof e === 'object' ? e.id : e) === item.id)
       if (idx >= 0) arr.splice(idx, 1)
-      else arr.push(item.id)
+      else arr.push(ARRANGE_SLOTS.includes(item.slot) ? { id: item.id } : item.id)
       equipped[item.slot] = arr
     }
 
@@ -421,7 +475,23 @@ async function handle(event) {
     return { code: 'OK', data: { equipped } }
   }
 
-  return { code: 'INVALID_PARAM', message: 'action 仅支持 getAvatar / getAttr / goOut / checkOut / quitOut / challengeBoss / buyItem / equipItem' }
+  // ---- 布置：保存某件已装备的家具/宠物的位置与大小（百分比坐标，scale 0.6~3.5）----
+  if (action === 'furnishItem') {
+    const { itemId, x, y, scale } = event
+    const slot = ARRANGE_SLOTS.includes(event.slot) ? event.slot : 'furniture'
+    const equipped = Object.assign({}, profile.avatarEquip || {})
+    const arr = Array.isArray(equipped[slot]) ? equipped[slot].slice() : []
+    const idx = arr.findIndex(e => (e && typeof e === 'object' ? e.id : e) === itemId)
+    if (idx < 0) return { code: 'NOT_EQUIPPED', message: '该物品还未装备' }
+    const cl = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)))
+    const cs = n => Math.max(0.6, Math.min(3.5, Math.round((Number(n) || 1) * 10) / 10))
+    arr[idx] = { id: itemId, x: cl(x), y: cl(y), scale: cs(scale) }
+    equipped[slot] = arr
+    await db.collection('user_profile').doc(profile._id).update({ data: { avatarEquip: equipped } })
+    return { code: 'OK', data: { [slot]: arr } }
+  }
+
+  return { code: 'INVALID_PARAM', message: 'action 仅支持 getAvatar / getAttr / goOut / checkOut / quitOut / challengeBoss / buyItem / equipItem / furnishItem' }
 }
 
 // 顶层兜底：任何未捕获异常都转成可读的返回值，避免前端只收到「网络错误」

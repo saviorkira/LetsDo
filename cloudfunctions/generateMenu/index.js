@@ -37,9 +37,9 @@ function calcRecipe(recipe, ingredientMap) {
   for (const item of recipe.ingredientList || []) {
     const ing = ingredientMap[item.ingredientId]
     if (!ing) continue // 食材已被删除时跳过
-    const ratio = item.weight / 100 // 统一基准：每 100g
+    const ratio = item.weight / 100 // 营养基准：每 100g
     totalCalories += ing.calories * ratio
-    totalPrice += ing.price * ratio
+    totalPrice += ing.price * (item.weight / 500) // 价格基准：ingredient.price 为元/斤（500g）
     totalProtein += ing.protein * ratio
     totalFat += ing.fat * ratio
     totalCarbohydrate += ing.carbohydrate * ratio

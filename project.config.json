@@ -5,7 +5,9 @@
     "ignoreDevtoolFiles": [
       "node_modules/**",
       "dist/**",
-      ".git/**"
+      ".git/**",
+      "ingredient_imgs/**",
+      "dish_imgs*/**"
     ],
     "urlCheck": true,
     "es6": true,

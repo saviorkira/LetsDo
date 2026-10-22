@@ -17,7 +17,7 @@
       <!-- 食材配方清单 -->
       <view class="card ld-card">
         <view class="label">食材配方</view>
-        <view v-for="ing in detail.ingredientList" :key="ing.ingredientId" class="ing-row">
+        <view v-for="ing in detail.ingredientList" :key="ing.ingredientId" class="ing-row" @click="goIngDetail(ing.ingredientId)">
           <image v-if="ing.imageUrl" class="ing-thumb" :src="ing.imageUrl" mode="aspectFill" />
           <view v-else class="ing-thumb ph">{{ ingredientIcon(ing) }}</view>
           <view class="n">
@@ -28,12 +28,13 @@
             <text class="b">{{ ing.weight }}g</text>
             <text class="s">{{ Math.round(ing.calories) }} kcal</text>
           </view>
+          <text class="ing-arrow">›</text>
         </view>
       </view>
 
-      <!-- 整套菜谱汇总 -->
+      <!-- 整套菜品汇总 -->
       <view class="card ld-card">
-        <view class="label">整套菜谱汇总</view>
+        <view class="label">整套菜品汇总</view>
         <view class="stat-grid">
           <view><text class="s">总热量</text><text class="b">{{ Math.round(detail.summary.totalCalories) }} kcal</text></view>
           <view><text class="s">预估总价</text><text class="b">¥{{ detail.summary.totalPrice.toFixed(1) }}</text></view>
@@ -44,10 +45,10 @@
         </view>
       </view>
 
-      <!-- 计算过程（可展开）：展示整套菜谱营养/价格是怎么算出来的 -->
+      <!-- 计算过程（可展开）：展示整套菜品营养/价格是怎么算出来的 -->
       <view class="card ld-card">
         <view class="calc-head" @click="showCalc = !showCalc">
-          <text class="label">整套菜谱计算过程</text>
+          <text class="label">整套菜品计算过程</text>
           <text class="toggle">{{ showCalc ? '收起 ▲' : '展开 ▼' }}</text>
         </view>
         <view v-if="showCalc" class="calc-body">
@@ -78,26 +79,19 @@
         </view>
       </view>
 
-      <!-- 视频号做菜教程：仅在配置了 videoChannelId 时展示 -->
-      <!-- videoChannelId 录入约定：「feedId:feedToken」格式（微信视频号视频的分享参数） -->
-      <view v-if="videoInfo" class="card ld-card">
-        <view class="label">视频号做菜教程</view>
-        <channel-video :feed-id="videoInfo.feedId" :feed-token="videoInfo.feedToken" />
-      </view>
-
       <Disclaimer />
     </template>
 
     <!-- 加载状态 -->
     <view v-if="loading" class="loading-box">
       <wd-loading color="#6FBF73" />
-      <text class="s">菜谱加载中...</text>
+      <text class="s">菜品加载中...</text>
     </view>
 
     <!-- 加载失败 -->
     <view v-if="!loading && !detail" class="empty">
       <view class="ico">😢</view>
-      <text class="b">菜谱不存在或已被删除</text>
+      <text class="b">菜品不存在或已被删除</text>
     </view>
   </view>
 </template>
@@ -122,6 +116,12 @@ function ingredientIcon(ing) {
   return foodEmoji(ing.name, { isVegetable: ing.isVegetable, isStaple: ing.isStaple })
 }
 
+// 点击食材行 → 食材详情页
+function goIngDetail(ingredientId) {
+  if (!ingredientId) return
+  uni.navigateTo({ url: `/pages/ingredient/detail?id=${ingredientId}` })
+}
+
 // 计算过程逐项数据：统一转数字并兜底，避免云函数旧版本缺字段时报错
 const calcRows = computed(() => {
   const d = detail.value
@@ -134,15 +134,6 @@ const calcRows = computed(() => {
     pricePer100g: Number(ing.pricePer100g) || 0,
     price: Number(ing.price) || 0
   }))
-})
-
-// 解析视频号参数：videoChannelId 按「feedId:feedToken」格式录入，非法格式则不展示视频模块
-const videoInfo = computed(() => {
-  const v = detail.value && detail.value.videoChannelId
-  if (!v) return null
-  const idx = v.indexOf(':')
-  if (idx <= 0) return null
-  return { feedId: v.slice(0, idx), feedToken: v.slice(idx + 1) }
 })
 
 // 接收菜谱卡片跳转携带的 id
@@ -267,6 +258,8 @@ onLoad(async (query) => {
     .b { display: block; font-size: 28rpx; font-weight: 700; color: var(--ld-text); }
     .s { display: block; font-size: 22rpx; color: var(--ld-text-3); margin-top: 4rpx; }
   }
+
+  .ing-arrow { font-size: 32rpx; color: var(--ld-text-3); flex-shrink: 0; }
 }
 
 /* 汇总六宫格 */

@@ -7,7 +7,7 @@
       <view class="profile">
         <button class="avatar-btn" open-type="chooseAvatar" @chooseavatar="onChooseAvatar">
           <image v-if="profile.avatarUrl" class="avatar" :src="profile.avatarUrl" mode="aspectFill" />
-          <view v-else class="avatar ph">🐱</view>
+          <view v-else class="avatar ph">🧑‍🍳</view>
         </button>
         <view class="pn">
           <view class="nick-row">
@@ -108,7 +108,7 @@
             <text class="n">{{ Math.abs(health.diff) }}</text>
             <text class="u">kcal</text>
           </view>
-          <text class="d-sub">今日摄入 {{ health.today.intake }} − 基础代谢 {{ health.bmr }} = {{ health.diff }} kcal</text>
+          <text class="d-sub">今日摄入 {{ health.today.intake }} − 今日消耗 {{ health.today.expenditure }} − 基础代谢 {{ health.bmr }} = {{ health.diff }} kcal</text>
         </view>
 
         <view v-if="health.recommend" class="rec">
@@ -297,9 +297,9 @@ const calcLines = computed(() => {
       v: `10 × ${p.weight}kg + 6.25 × ${p.height}cm − 5 × ${p.age}岁 ${constTerm} = ${h.bmr} kcal（${isFemale ? '女' : '男'}性 Mifflin-St Jeor 公式）`
     },
     { k: '今日摄入', v: `${h.today.intake} kcal（来自你记录的今日摄入热量）` },
-    { k: '热量差额', v: `${h.today.intake} − ${h.bmr} = ${h.diff} kcal` },
     { k: '今日消耗', v: `${h.today.expenditure} kcal（不含新陈代谢）` },
-    { k: '剩余需消耗', v: `差额 ${h.diff} − 已消耗 ${h.today.expenditure} = ${h.remaining} kcal` }
+    { k: '热量盈余', v: `摄入 ${h.today.intake} − 消耗 ${h.today.expenditure} − 基础代谢 ${h.bmr} = ${h.diff} kcal` },
+    { k: '剩余需消耗', v: `盈余大于 0 时需通过运动抵消，剩余需消耗 = max(0, ${h.diff}) = ${h.remaining} kcal` }
   ]
 })
 

@@ -33,16 +33,25 @@
         <view class="pt-pill">⭐ {{ avatar.totalPoint }} 积分</view>
         <view class="hut-actions">
           <view class="hut-btn attr" @click="showAttr = true"><text class="hut-ico">📊</text>状态</view>
+          <view class="hut-btn place" :class="{ on: furnishing }" @click="toggleFurnish"><text class="hut-ico">🛠</text>布置</view>
           <view class="hut-btn shop" @click="openShop"><text class="hut-ico">🛍</text>饰品</view>
         </view>
       </view>
 
-      <!-- 舞台：点击/按住移动人物 -->
+      <!-- 舞台：点击/按住移动人物（布置模式下家具可拖拽） -->
       <view class="stage" :class="[stageBgClass, room === 'bmi' ? 'room-bmi' : '']" @touchstart="onStageTouchStart" @touchmove="onStageTouchMove" @touchend="onStageTouchEnd" @touchcancel="onStageTouchEnd">
-        <!-- 家具层（仅在 home，可多件同时摆放） -->
+        <!-- 家具层（仅在 home，可多件同时摆放；布置模式可拖动/缩放） -->
         <template v-if="room === 'home'">
-          <view v-for="f in equipped.furniture" :key="f" class="furniture" :class="f">
-            <text v-if="FUR_EMOJI[f]" class="fur-emoji">{{ FUR_EMOJI[f] }}</text>
+          <view
+            v-for="f in equipped.furniture"
+            :key="f.id"
+            class="furniture"
+            :class="[f.id, { placing: furnishing, selected: selectedFurn === f.id }]"
+            :style="furnStyle(f)"
+            @touchstart.stop="onItemTouch(f, 'furniture', $event)"
+            @touchmove.stop.prevent="onItemTouchMove(f, 'furniture', $event)"
+          >
+            <text v-if="FUR_EMOJI[f.id]" class="fur-emoji">{{ FUR_EMOJI[f.id] }}</text>
           </view>
           <!-- 左侧门：出门（走过去触发） -->
           <view class="door door-left">
@@ -54,17 +63,28 @@
             <view class="door-plank"><view class="door-knob"></view></view>
             <view class="door-label"><text>BMI</text><text>人物展示</text></view>
           </view>
+
+          <!-- 布置模式工具条 -->
+          <view v-if="furnishing" class="furn-bar">
+            <text class="fb-tip">{{ selectedFurn ? '拖动移动 · ± 调大小' : '点击家具/宠物选中后可调整' }}</text>
+            <view class="fb-btn" :class="{ dis: !selectedFurn }" @click="furnScale(-0.2)">－</view>
+            <view class="fb-btn" :class="{ dis: !selectedFurn }" @click="furnScale(0.2)">＋</view>
+            <view class="fb-btn warn" :class="{ dis: !selectedFurn }" @click="furnRemove">卸下</view>
+            <view class="fb-btn done" @click="toggleFurnish">完成</view>
+          </view>
         </template>
 
-        <!-- 宠物层（仅在 home，可同时带多只，错开站位） -->
+        <!-- 宠物层（仅在 home，可同时带多只；布置模式可拖动/缩放） -->
         <view
-          v-for="(p, i) in (room === 'home' ? equipped.pet : [])"
-          :key="p"
+          v-for="p in (room === 'home' ? equipped.pet : [])"
+          :key="p.id"
           class="pet"
-          :class="p"
-          :style="{ right: (16 + i * 14) + '%' }"
+          :class="[p.id, { placing: furnishing, selected: selectedFurn === p.id }]"
+          :style="furnStyle(p)"
+          @touchstart.stop="onItemTouch(p, 'pet', $event)"
+          @touchmove.stop.prevent="onItemTouchMove(p, 'pet', $event)"
         >
-          <text class="pet-emoji">{{ PET_EMOJI[p] || '🐾' }}</text>
+          <text class="pet-emoji">{{ PET_EMOJI[p.id] || '🐾' }}</text>
         </view>
 
         <!-- BMI 展示间 -->
@@ -141,8 +161,6 @@
           </view>
         </view>
       </view>
-
-      <text v-if="avatar.hasProfile && room === 'bmi'" class="stage-tip">走到左侧门口即可返回小屋</text>
     </view>
 
     <!-- 饰品商店弹窗：商店 + 我的饰品合并（兑换→装备→卸下一体） -->
@@ -282,7 +300,55 @@ const shopTabs = [
   { key: 'bg', label: '背景' }
 ]
 
-// 装备数据归一化：每个槽位都是数组（兼容旧的单件格式）
+// 宠物 emoji 映射
+const PET_EMOJI = { pet_cat: '🐱', pet_dog: '🐕', pet_rabbit: '🐇', pet_chick: '🐤', pet_hamster: '🐹', pet_panda: '🐼', pet_fox: '🦊', pet_penguin: '🐧', rare_dragon: '🐉' }
+// 家具 emoji 映射（fur_rug 是纯 CSS 地毯，fur_window/fur_clock 也是 CSS 绘制）
+const FUR_EMOJI = { fur_sofa: '🛋️', fur_bed: '🛏️', fur_lamp: '💡', fur_plant: '🪴', fur_table: '🪑', fur_tv: '📺', fur_bookshelf: '📚', rare_castle: '🏰', rare_mirror: '🪞', drop_scroll: '📜', drop_shell: '🐚', fur_wallstar: '✨', fur_painting: '🖼️', fur_photo: '📷', fur_cloud: '☁️', fur_windbell: '🎐', fur_tapestry: '🧶' }
+// 家具默认摆放位置（百分比，x/y 为元素左上角；与原 CSS 定位换算一致）
+const DEFAULT_FURN_POS = {
+  fur_sofa: { x: 8, y: 74 }, fur_bed: { x: 84, y: 72 }, fur_lamp: { x: 88, y: 20 },
+  fur_rug: { x: 44, y: 82 }, fur_plant: { x: 5, y: 16 }, fur_table: { x: 52, y: 78 },
+  fur_tv: { x: 76, y: 62 }, fur_bookshelf: { x: 20, y: 12 }, rare_castle: { x: 38, y: 72 },
+  rare_mirror: { x: 84, y: 24 }, drop_scroll: { x: 30, y: 80 }, drop_shell: { x: 66, y: 84 },
+  fur_window: { x: 50, y: 12 }, fur_clock: { x: 92, y: 14 },
+  // 墙面装饰：默认贴在墙上（y 小 = 靠上）
+  fur_wallstar: { x: 26, y: 1 }, fur_painting: { x: 24, y: 12 }, fur_photo: { x: 40, y: 9 },
+  fur_cloud: { x: 74, y: 3 }, fur_windbell: { x: 58, y: 5 }, fur_tapestry: { x: 6, y: 12 }
+}
+// 宠物默认站位（百分比，x/y 为元素左上角，分散在屋内）
+const DEFAULT_PET_POS = {
+  pet_cat: { x: 18, y: 78 }, pet_dog: { x: 70, y: 80 }, pet_rabbit: { x: 32, y: 82 },
+  pet_chick: { x: 52, y: 84 }, pet_hamster: { x: 62, y: 74 }, pet_panda: { x: 26, y: 68 },
+  pet_fox: { x: 80, y: 70 }, pet_penguin: { x: 44, y: 78 }, rare_dragon: { x: 60, y: 64 }
+}
+const FALLBACK_POS = { x: 50, y: 70 }
+const SCALE_MIN = 0.6
+const SCALE_MAX = 3.5
+const clamp100 = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)))
+
+// 布置模式状态
+const furnishing = ref(false)
+const selectedFurn = ref(null)
+const selectedSlot = ref('furniture')
+let furnDrag = null
+let furnSaveTimer = null
+
+// 布置元素归一化：统一成 {id, x, y, scale}
+function normArrange(list, defaults) {
+  return (Array.isArray(list) ? list : (list ? [list] : [])).map(e => {
+    const id = e && typeof e === 'object' ? e.id : e
+    const def = defaults[id] || FALLBACK_POS
+    const o = e && typeof e === 'object' ? e : {}
+    return {
+      id,
+      x: o.x == null ? def.x : clamp100(o.x),
+      y: o.y == null ? def.y : clamp100(o.y),
+      scale: Math.max(SCALE_MIN, Math.min(SCALE_MAX, Number(o.scale) || 1))
+    }
+  })
+}
+
+// 装备数据归一化：每个槽位都是数组（兼容旧的单件格式；家具与宠物统一为 {id,x,y,scale}）
 const equipped = computed(() => {
   const raw = avatar.value.equipped || {}
   const norm = {}
@@ -290,13 +356,10 @@ const equipped = computed(() => {
     const v = raw[k]
     norm[k] = Array.isArray(v) ? v : (v ? [v] : [])
   }
+  norm.furniture = normArrange(norm.furniture, DEFAULT_FURN_POS)
+  norm.pet = normArrange(norm.pet, DEFAULT_PET_POS)
   return norm
 })
-
-// 宠物 emoji 映射
-const PET_EMOJI = { pet_cat: '🐱', pet_dog: '🐕', pet_rabbit: '🐇', pet_chick: '🐤', pet_hamster: '🐹', pet_panda: '🐼', pet_fox: '🦊', pet_penguin: '🐧', rare_dragon: '🐉' }
-// 家具 emoji 映射（fur_rug 是纯 CSS 地毯，fur_window/fur_clock 也是 CSS 绘制）
-const FUR_EMOJI = { fur_sofa: '🛋️', fur_bed: '🛏️', fur_lamp: '💡', fur_plant: '🪴', fur_table: '🪑', fur_tv: '📺', fur_bookshelf: '📚', rare_castle: '🏰', rare_mirror: '🪞', drop_scroll: '📜', drop_shell: '🐚' }
 
 // 饰品商店过滤：商店商品（有 price）全部显示；稀有/掉落物品（无 price）仅已拥有时显示，便于装备
 const filteredShop = computed(() => {
@@ -310,6 +373,102 @@ const stageBgClass = computed(() => {
   const bg = arr[arr.length - 1]
   return bg ? `stage-${bg}` : ''
 })
+
+// 布置元素内联样式：位置 + 缩放（数据驱动，布置后保存在用户档案里）
+function furnStyle(f) {
+  const st = { left: f.x + '%', top: f.y + '%' }
+  if (f.scale !== 1) st.transform = `scale(${f.scale})`
+  return st
+}
+
+// 本地更新某件布置元素（直接改原始 equipped，computed 会重新归一化）
+function updateItem(slot, id, patch) {
+  const raw = avatar.value.equipped || {}
+  const arr = raw[slot]
+  if (!Array.isArray(arr)) return
+  const i = arr.findIndex(e => (e && typeof e === 'object' ? e.id : e) === id)
+  if (i < 0) return
+  const cur = arr[i] && typeof arr[i] === 'object' ? arr[i] : { id }
+  arr[i] = Object.assign({}, cur, patch, { id })
+  avatar.value = { ...avatar.value }
+}
+
+// 保存布置（拖动停止后防抖调用）
+function scheduleItemSave(slot, id) {
+  clearTimeout(furnSaveTimer)
+  furnSaveTimer = setTimeout(() => saveItem(slot, id), 700)
+}
+async function saveItem(slot, id) {
+  const f = (equipped.value[slot] || []).find(x => x.id === id)
+  if (!f) return
+  try {
+    await callFunction('avatarService', { action: 'furnishItem', slot, itemId: id, x: f.x, y: f.y, scale: f.scale })
+  } catch (e) { /* 静默：下次布置会再保存 */ }
+}
+
+// 布置模式开关（退出前立刻保存选中元素，避免防抖丢失）
+function toggleFurnish() {
+  if (furnishing.value && selectedFurn.value) saveItem(selectedSlot.value, selectedFurn.value)
+  furnishing.value = !furnishing.value
+  selectedFurn.value = null
+  furnDrag = null
+  clearTimeout(furnSaveTimer)
+  if (furnishing.value && !stageRect) getStageRect()
+}
+
+// 布置元素触摸：布置模式下点按选中 / 拖动移动；非布置模式转发给舞台走人逻辑
+function onItemTouch(item, slot, e) {
+  if (!furnishing.value) {
+    onStageTouchStart(e)
+    return
+  }
+  selectedFurn.value = item.id
+  selectedSlot.value = slot
+  const t = e.touches[0]
+  furnDrag = { slot, id: item.id, sx: t.clientX, sy: t.clientY, ox: item.x, oy: item.y, moved: false }
+}
+function onItemTouchMove(item, slot, e) {
+  if (!furnishing.value) {
+    onStageTouchMove(e)
+    return
+  }
+  if (!stageRect || !furnDrag || furnDrag.id !== item.id || furnDrag.slot !== slot) return
+  const t = e.touches[0]
+  const dx = t.clientX - furnDrag.sx
+  const dy = t.clientY - furnDrag.sy
+  if (!furnDrag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) furnDrag.moved = true
+  if (!furnDrag.moved) return
+  const x = clamp100(furnDrag.ox + (dx / stageRect.width) * 100)
+  const y = clamp100(furnDrag.oy + (dy / stageRect.height) * 100)
+  updateItem(slot, item.id, { x, y })
+  scheduleItemSave(slot, item.id)
+}
+
+// 缩放选中的家具 / 宠物
+function furnScale(delta) {
+  const slot = selectedSlot.value
+  if (!selectedFurn.value) return
+  const f = (equipped.value[slot] || []).find(x => x.id === selectedFurn.value)
+  if (!f) return
+  const scale = Math.max(SCALE_MIN, Math.min(SCALE_MAX, Math.round((f.scale + delta) * 10) / 10))
+  updateItem(slot, selectedFurn.value, { scale })
+  saveItem(slot, selectedFurn.value)
+}
+
+// 布置模式卸下选中的家具 / 宠物
+async function furnRemove() {
+  const id = selectedFurn.value
+  if (!id) return
+  try {
+    const res = await callFunction('avatarService', { action: 'equipItem', itemId: id })
+    if ((res.result || {}).code === 'OK') {
+      selectedFurn.value = null
+      load()
+    }
+  } catch (e) {
+    uni.showToast({ title: '网络异常，请稍后再试', icon: 'none' })
+  }
+}
 
 // ---- 加载 ----
 async function load() {
@@ -366,7 +525,8 @@ let stopTimer = null
 let lastDir = null
 
 const STEP = 5
-const BOUND = { xMin: 18, xMax: 82, yMin: 18, yMax: 58 }
+// 可活动范围（百分比）：左右几乎贴墙、上下加大，比例更自由
+const BOUND = { xMin: 6, xMax: 88, yMin: 8, yMax: 64 }
 
 // 获取舞台在页面中的位置
 function getStageRect() {
@@ -403,30 +563,29 @@ function doMove(dir) {
   moving.value = true
   clearTimeout(stopTimer)
   stopTimer = setTimeout(() => { moving.value = false; facing.value = 'front' }, 500)
-  // 进门判定：home 右侧门 → BMI 展示间；home 左侧门 → 出门弹窗；BMI 左侧门 → 返回小屋
-  if (room.value === 'home' && p.x >= 80) {
+  // 进门判定：精确到门的 x 范围，且人物头顶进入门的 y 范围（门顶 30% ~ 门底 60%）才触发
+  // 门的 x 范围：右侧门 [84%, 97%]（right:3% + 宽12.8%），左侧门 [3%, 16%]（left:3% + 宽12.8%）
+  if (room.value === 'home' && p.x >= 85 && p.y >= 25) {
     room.value = 'bmi'
     p.x = 25
     p.y = 45
     facing.value = 'front'
     faceLeft.value = false
-    uni.showToast({ title: '进入 BMI 展示间', icon: 'none' })
-  } else if (room.value === 'home' && p.x <= 20) {
+  } else if (room.value === 'home' && p.x <= 16 && p.y >= 25) {
     // 走到左侧门口：弹出门菜单，并把人往回推一点避免重复触发
     p.x = 24
     showOut.value = true
-  } else if (room.value === 'bmi' && p.x <= 20) {
+  } else if (room.value === 'bmi' && p.x <= 16 && p.y >= 25) {
     room.value = 'home'
-    p.x = 76
+    p.x = 82
     p.y = 45
     facing.value = 'front'
     faceLeft.value = false
-    uni.showToast({ title: '回到小屋', icon: 'none' })
   }
 }
 
 async function onStageTouchStart(e) {
-  if (!avatar.value.hasProfile || outing.value) return
+  if (!avatar.value.hasProfile || outing.value || furnishing.value) return
   if (!stageRect) stageRect = await getStageRect()
   const touch = e.touches[0]
   moveByTouch(touch)
@@ -436,7 +595,7 @@ async function onStageTouchStart(e) {
 }
 
 function onStageTouchMove(e) {
-  if (!avatar.value.hasProfile || !stageRect) return
+  if (!avatar.value.hasProfile || !stageRect || furnishing.value) return
   moveByTouch(e.touches[0])
 }
 
@@ -570,13 +729,13 @@ async function quitOuting() {
 
 // ---- Boss 挑战（七大罪，傲慢最强）----
 const BOSSES = [
-  { id: 'boss_pride', name: '傲慢魔王', icon: '👑', need: { power: 25, agility: 20, intelligence: 20, charm: 22, stamina: 25 }, rewardName: '王者之冠', desc: '七大罪之首，最强魔王' },
-  { id: 'boss_wrath', name: '暴怒魔王', icon: '😡', need: { power: 20, agility: 15 }, rewardName: '暴怒拳套', desc: '怒火燃烧一切' },
-  { id: 'boss_lust', name: '色欲魔王', icon: '😈', need: { charm: 20, agility: 16 }, rewardName: '魅影玫瑰', desc: '魅惑众生的幻影' },
-  { id: 'boss_greed', name: '贪婪魔王', icon: '🤑', need: { intelligence: 18, charm: 15 }, rewardName: '黄金钱袋', desc: '永远填不满的欲望' },
-  { id: 'boss_envy', name: '嫉妒魔王', icon: '🐍', need: { intelligence: 16, charm: 16 }, rewardName: '翡翠魔镜', desc: '映出他人拥有的一切' },
-  { id: 'boss_gluttony', name: '暴食魔王', icon: '🍔', need: { power: 15, intelligence: 12 }, rewardName: '小青龙', desc: '吞噬无尽的美食' },
-  { id: 'boss_sloth', name: '懒惰魔王', icon: '😴', need: { power: 12, stamina: 12 }, rewardName: '勇者之剑', desc: '沉睡千年的懒人' }
+  { id: 'boss_pride', name: '傲慢', icon: '👑', need: { power: 25, agility: 20, intelligence: 20, charm: 22, stamina: 25 }, rewardName: '王者之冠', desc: '七大罪之首，最强Boss' },
+  { id: 'boss_wrath', name: '暴怒', icon: '😡', need: { power: 20, agility: 15 }, rewardName: '暴怒拳套', desc: '怒火燃烧一切' },
+  { id: 'boss_lust', name: '色欲', icon: '😈', need: { charm: 20, agility: 16 }, rewardName: '魅影玫瑰', desc: '魅惑众生的幻影' },
+  { id: 'boss_greed', name: '贪婪', icon: '🤑', need: { intelligence: 18, charm: 15 }, rewardName: '黄金钱袋', desc: '永远填不满的欲望' },
+  { id: 'boss_envy', name: '嫉妒', icon: '🐍', need: { intelligence: 16, charm: 16 }, rewardName: '翡翠魔镜', desc: '映出他人拥有的一切' },
+  { id: 'boss_gluttony', name: '暴食', icon: '🍔', need: { power: 15, intelligence: 12 }, rewardName: '小青龙', desc: '吞噬无尽的美食' },
+  { id: 'boss_sloth', name: '懒惰', icon: '😴', need: { power: 12, stamina: 12 }, rewardName: '勇者之剑', desc: '沉睡千年的懒人' }
 ]
 
 const bosses = computed(() => {
@@ -665,7 +824,6 @@ async function onGood(g) {
       const res = await callFunction('avatarService', { action: 'equipItem', itemId: g.id })
       const ret = res.result || {}
       if (ret.code === 'OK') {
-        uni.showToast({ title: g.equipped ? '已卸下' : '装备成功', icon: 'none' })
         load()
       } else {
         uni.showToast({ title: ret.message || '操作失败', icon: 'none' })
@@ -716,12 +874,14 @@ function goMine() {
 }
 
 .card { padding: 28rpx; margin-bottom: 20rpx; }
-.info-card { flex-shrink: 0; }
+/* 顶部信息卡固定高度，防止 mood 文本变长时挤压下方舞台 */
+.info-card { flex-shrink: 0; height: 232rpx; box-sizing: border-box; overflow: hidden; }
 .stage-card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* 信息卡 */
 .stat-row {
   display: flex;
+  height: 84rpx;
   .stat {
     flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4rpx;
     .sv { font-size: 38rpx; font-weight: 800; color: var(--ld-primary-dark); &.tag { font-size: 28rpx; } }
@@ -729,8 +889,14 @@ function goMine() {
   }
 }
 .mood {
-  display: block; margin-top: 16rpx; padding: 14rpx; border-radius: 14rpx;
+  display: block; margin-top: 16rpx; padding: 14rpx 16rpx; border-radius: 14rpx;
   background: var(--ld-primary-soft); font-size: 22rpx; color: var(--ld-text-2); text-align: center;
+  max-height: 56rpx; line-height: 1.6;
+  /* 多行溢出截断，超过 2 行隐藏 */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .go-profile { margin-top: 14rpx; text-align: center; font-size: 26rpx; font-weight: 700; color: var(--ld-primary-dark); }
 
@@ -754,30 +920,33 @@ function goMine() {
   align-items: center;
   justify-content: center;
   &.equip { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
+  &.attr { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
+  &.place { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
+  &.place.on { background: #ffd43b; color: #5c4400; }
   &.shop { background: var(--ld-primary); color: #fff; }
 }
 
 /* 舞台 */
 .stage {
   position: relative; flex: 1; min-height: 400rpx; border-radius: var(--ld-radius-md); overflow: hidden;
-  background: linear-gradient(180deg, #dff3ff 0%, #dff3ff 66%, #ffe9c9 66%, #ffe9c9 100%);
+  background: linear-gradient(180deg, #dff3ff 0%, #dff3ff 60%, #ffe9c9 60%, #ffe9c9 100%);
   touch-action: none;
 
-  /* 所有背景地面线统一在 66%（距底 34%），保证门在所有背景下都贴地 */
-  &.stage-bg_forest { background: linear-gradient(180deg, #d3f9d8 0%, #d3f9d8 66%, #b2f2bb 66%, #b2f2bb 100%); }
-  &.stage-bg_beach { background: linear-gradient(180deg, #a5d8ff 0%, #a5d8ff 66%, #ffe8cc 66%, #ffe8cc 100%); }
-  &.stage-bg_starry { background: linear-gradient(180deg, #1a1b4b 0%, #1a1b4b 66%, #2d2b55 66%, #2d2b55 100%); }
-  &.stage-bg_sunset { background: linear-gradient(180deg, #ffa94d 0%, #ffa94d 66%, #ffd8a8 66%, #ffd8a8 100%); }
-  &.stage-bg_sakura { background: linear-gradient(180deg, #fcc2d7 0%, #fcc2d7 66%, #ffe8cc 66%, #ffe8cc 100%); }
-  &.stage-bg_rainy { background: linear-gradient(180deg, #868e96 0%, #868e96 66%, #adb5bd 66%, #adb5bd 100%); }
-  &.stage-bg_snow { background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 66%, #fff 66%, #fff 100%); }
+  /* 所有背景地面线统一在 60%（距底 40%），保证门在所有背景下都贴地 */
+  &.stage-bg_forest { background: linear-gradient(180deg, #d3f9d8 0%, #d3f9d8 60%, #b2f2bb 60%, #b2f2bb 100%); }
+  &.stage-bg_beach { background: linear-gradient(180deg, #a5d8ff 0%, #a5d8ff 60%, #ffe8cc 60%, #ffe8cc 100%); }
+  &.stage-bg_starry { background: linear-gradient(180deg, #1a1b4b 0%, #1a1b4b 60%, #2d2b55 60%, #2d2b55 100%); }
+  &.stage-bg_sunset { background: linear-gradient(180deg, #ffa94d 0%, #ffa94d 60%, #ffd8a8 60%, #ffd8a8 100%); }
+  &.stage-bg_sakura { background: linear-gradient(180deg, #fcc2d7 0%, #fcc2d7 60%, #ffe8cc 60%, #ffe8cc 100%); }
+  &.stage-bg_rainy { background: linear-gradient(180deg, #868e96 0%, #868e96 60%, #adb5bd 60%, #adb5bd 100%); }
+  &.stage-bg_snow { background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 60%, #fff 60%, #fff 100%); }
 }
-.egg { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); font-size: 100rpx; }
-.stage-tip { display: block; margin-top: 12rpx; text-align: center; font-size: 20rpx; color: var(--ld-text-3); flex-shrink: 0; }
+.egg { position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%); font-size: 100rpx; }
+/* 舞台 */
 
-/* 门：两个房间地面线都在 66%（距底 34%），统一贴地 */
+/* 门：两个房间地面线都在 60%（距底 40%），统一贴地 */
 .door {
-  position: absolute; bottom: 34%; z-index: 1;
+  position: absolute; bottom: 40%; z-index: 1;
   width: 96rpx; height: 180rpx;
 
   &.door-right { right: 3%; }
@@ -807,9 +976,9 @@ function goMine() {
   }
 }
 
-/* BMI 展示间背景（地面线同样在 66%，门沿用统一样式） */
+/* BMI 展示间背景（地面线同样在 60%，门沿用统一样式） */
 .stage.room-bmi {
-  background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 66%, #d0ebff 66%, #d0ebff 100%);
+  background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 60%, #d0ebff 60%, #d0ebff 100%);
 }
 .bmi-title {
   position: absolute; top: 5%; left: 50%; transform: translateX(-50%);
@@ -819,7 +988,7 @@ function goMine() {
 
 /* 静态模特：缩放、禁动 */
 .model-wrap {
-  position: absolute; bottom: 30%; z-index: 1;
+  position: absolute; bottom: 36%; z-index: 1;
 
   .char.model {
     position: absolute; bottom: 0; left: 0;
@@ -841,45 +1010,81 @@ function goMine() {
   }
 }
 
-/* 家具 */
+/* 家具：位置与大小由档案数据驱动（left/top/transform 内联），这里只管外观 */
 .furniture {
   position: absolute; z-index: 1; font-size: 64rpx;
-  &.fur_sofa { left: 8%; bottom: 18%; }
-  &.fur_bed { right: 6%; bottom: 20%; }
-  &.fur_lamp { right: 12%; top: 20%; }
+  &.fur_sofa { font-size: 64rpx; }
+  &.fur_bed { font-size: 64rpx; }
+  &.fur_lamp { font-size: 64rpx; }
   &.fur_rug {
-    left: 50%; bottom: 12%; transform: translateX(-50%);
     width: 200rpx; height: 80rpx; border-radius: 50%; background: rgba(255, 107, 107, 0.25);
   }
-  &.fur_plant { left: 5%; top: 16%; font-size: 56rpx; }
-  &.fur_table { left: 52%; bottom: 16%; font-size: 56rpx; }
-  &.fur_tv { right: 24%; bottom: 30%; font-size: 52rpx; }
-  &.fur_bookshelf { left: 20%; top: 12%; font-size: 56rpx; }
-  &.rare_castle { left: 38%; bottom: 20%; font-size: 72rpx; }
-  &.rare_mirror { right: 16%; top: 24%; font-size: 56rpx; }
-  &.drop_scroll { left: 30%; bottom: 14%; font-size: 52rpx; }
-  &.drop_shell { right: 34%; bottom: 10%; font-size: 52rpx; }
+  &.fur_plant { font-size: 56rpx; }
+  &.fur_table { font-size: 56rpx; }
+  &.fur_tv { font-size: 52rpx; }
+  &.fur_bookshelf { font-size: 56rpx; }
+  &.rare_castle { font-size: 72rpx; }
+  &.rare_mirror { font-size: 56rpx; }
+  &.drop_scroll { font-size: 52rpx; }
+  &.drop_shell { font-size: 52rpx; }
+  /* 墙面装饰 */
+  &.fur_wallstar { font-size: 76rpx; }
+  &.fur_painting { font-size: 60rpx; }
+  &.fur_photo { font-size: 56rpx; }
+  &.fur_cloud { font-size: 62rpx; }
+  &.fur_windbell { font-size: 52rpx; }
+  &.fur_tapestry { font-size: 56rpx; }
   &.fur_window {
-    left: 50%; top: 12%; transform: translateX(-50%);
     width: 80rpx; height: 70rpx; border-radius: 12rpx;
     background: linear-gradient(180deg, #a5d8ff 0%, #e7f5ff 100%);
     border: 6rpx solid #8d6e63; box-shadow: inset 0 0 0 4rpx #fff;
     &::after { content: ''; position: absolute; left: 50%; top: 0; width: 4rpx; height: 100%; background: #8d6e63; }
   }
   &.fur_clock {
-    right: 8%; top: 14%; width: 44rpx; height: 44rpx; border-radius: 50%;
+    width: 44rpx; height: 44rpx; border-radius: 50%;
     background: #fff; border: 4rpx solid #343a40;
     &::before { content: ''; position: absolute; left: 50%; top: 50%; width: 4rpx; height: 14rpx; background: #343a40; transform: translate(-50%, -100%); }
     &::after { content: ''; position: absolute; left: 50%; top: 50%; width: 10rpx; height: 4rpx; background: #343a40; transform: translate(0, -50%); }
   }
+
+  /* 布置模式：可拖拽高亮 */
+  &.placing {
+    border: 2rpx dashed rgba(78, 141, 245, 0.55);
+    border-radius: 12rpx;
+    background: rgba(78, 141, 245, 0.06);
+  }
+  &.selected {
+    border: 3rpx solid #4e8df5;
+    border-radius: 12rpx;
+    background: rgba(78, 141, 245, 0.12);
+  }
 }
 
-/* 宠物：比人物小很多 */
+/* 布置模式工具条 */
+.furn-bar {
+  position: absolute; left: 50%; bottom: 3%; transform: translateX(-50%);
+  z-index: 9; display: flex; align-items: center; gap: 12rpx;
+  padding: 10rpx 16rpx; border-radius: 999rpx;
+  background: rgba(33, 37, 41, 0.85); box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+  .fb-tip { font-size: 20rpx; color: #fff; margin-right: 4rpx; }
+  .fb-btn {
+    min-width: 52rpx; height: 48rpx; padding: 0 14rpx; border-radius: 999rpx;
+    display: grid; place-items: center;
+    font-size: 24rpx; color: #212529; background: #fff; font-weight: 700;
+    &.warn { color: #fff; background: #ff8787; }
+    &.done { color: #fff; background: #4e8df5; }
+    &.dis { opacity: 0.4; }
+  }
+}
+
+/* 宠物：位置与大小由档案数据驱动（left/top/transform 内联），上下浮动动画放在 emoji 上，避免吃掉缩放 */
 .pet {
-  position: absolute; right: 18%; bottom: 20%; z-index: 2;
+  position: absolute; z-index: 2;
   width: 80rpx; height: 80rpx; display: grid; place-items: center;
-  animation: petBob 0.8s ease-in-out infinite alternate;
-  .pet-emoji { font-size: 64rpx; line-height: 1; }
+  .pet-emoji { font-size: 64rpx; line-height: 1; animation: petBob 0.8s ease-in-out infinite alternate; }
+  &.placing { border: 2rpx dashed rgba(78, 141, 245, 0.55); border-radius: 12rpx; background: rgba(78, 141, 245, 0.06); }
+  &.selected { border: 3rpx solid #4e8df5; border-radius: 12rpx; background: rgba(78, 141, 245, 0.12); }
 }
 @keyframes petBob { from { transform: translateY(0); } to { transform: translateY(-8rpx); } }
 

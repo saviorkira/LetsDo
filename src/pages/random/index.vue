@@ -32,13 +32,12 @@
         <view class="secondary">
           <!-- 忌口按钮（虚线胶囊 + 红点） -->
           <view class="filter-btn" :class="{ on: excludeIds.length }" @click="openFilter">
-            <text class="fi">🧂</text>
             <text>忌口</text>
             <view v-if="excludeIds.length" class="dot"></view>
           </view>
           <!-- 提示行：固定高度，无选中时隐藏但保留占位，避免按钮位移 -->
           <text class="filter-hint" :class="{ hide: !excludeIds.length }">
-            已勾选 <em>{{ excludeIds.length }}</em> 项忌口，生成时将排除对应菜谱
+            已勾选 <em>{{ excludeIds.length }}</em> 项忌口，生成时将排除对应菜品
           </text>
         </view>
       </template>
@@ -49,6 +48,16 @@
           <view class="dice">🎲</view>
           <text class="t">随机食材，随缘拼菜</text>
           <text class="s">系统随机抽取 2~4 种食材\n为它们组合出一个合适的菜名</text>
+        </view>
+        <!-- 菜品类型筛选 -->
+        <view class="dish-types">
+          <view
+            v-for="t in dishTypes"
+            :key="t.key"
+            class="dt-chip"
+            :class="{ on: dishType === t.key }"
+            @click="dishType = t.key"
+          >{{ t.label }}</view>
         </view>
         <view class="secondary">
           <view class="cause-note">
@@ -124,10 +133,11 @@
 
       <!-- 绿色渐变汇总卡 -->
       <view class="summary">
+        <text class="sum-name">{{ result.recipes.map(r => r.name).join(' + ') }}</text>
         <view class="top">
           <view class="t-l">
-            <text class="big">{{ Math.round(result.summary.totalCalories) }}</text>
-            <text class="s">整套菜单总热量 kcal</text>
+            <text class="big">{{ Math.round(result.summary.totalCalories) }}大卡</text>
+            <text class="s">预估热量</text>
           </view>
           <view class="price">预估总价<b>¥{{ result.summary.totalPrice.toFixed(1) }}</b></view>
         </view>
@@ -155,15 +165,32 @@
         <text class="txt">本次随机食材</text>
         <view class="line"></view>
       </view>
-      <view class="dish-summary">
-        <text class="dish-name">{{ dishResult.dishName }}</text>
-        <text class="dish-cal">约 {{ Math.round(dishResult.totalCalories) }} kcal</text>
+
+      <!-- 绿色渐变汇总卡（与随机菜单同款） -->
+      <view class="summary dish-summary">
+        <text class="sum-name">{{ dishResult.dishName }}</text>
+        <view class="top">
+          <view class="t-l">
+            <text class="big">{{ dishResult.summary.totalCalories }}大卡</text>
+            <text class="s">预估热量</text>
+          </view>
+          <view class="price">预估总价<b>¥{{ dishResult.summary.totalPrice.toFixed(1) }}</b></view>
+        </view>
+        <view class="macro">
+          <view><text class="s">蛋白质</text><text class="b">{{ dishResult.summary.totalProtein.toFixed(1) }}g</text></view>
+          <view><text class="s">脂肪</text><text class="b">{{ dishResult.summary.totalFat.toFixed(1) }}g</text></view>
+          <view><text class="s">碳水</text><text class="b">{{ dishResult.summary.totalCarbohydrate.toFixed(1) }}g</text></view>
+        </view>
       </view>
-      <view class="list-label">食材组合（{{ dishResult.ingredientList.length }} 种）</view>
+
+      <view class="list-label">本次搭配（{{ dishResult.ingredientList.length }} 种）</view>
       <view class="dish-ings">
-        <view v-for="ing in dishResult.ingredientList" :key="ing.ingredientId" class="di">
+        <view v-for="ing in dishResult.ingredientList" :key="ing.ingredientId" class="di" @click="goIngDetail(ing.ingredientId)">
+          <image v-if="ing.imageUrl" class="di-img" :src="ing.imageUrl" mode="aspectFill" />
+          <text v-else class="di-emoji">{{ foodEmoji(ing.name) }}</text>
           <text class="di-n">{{ ing.name }}</text>
           <text class="di-w">{{ ing.weight }}g · {{ Math.round(ing.calories) }}kcal</text>
+          <text class="di-arrow">›</text>
         </view>
       </view>
     </template>
@@ -180,7 +207,7 @@
       <view class="modal">
         <view class="m-head">
           <text class="t">忌口食材筛选</text>
-          <text class="s">勾选后，生成菜单将排除包含所选食材的菜谱</text>
+          <text class="s">勾选后，生成菜单将排除包含所选食材的菜品</text>
         </view>
         <scroll-view scroll-y class="m-body">
           <view
@@ -190,10 +217,8 @@
             :class="{ on: tempExcludeIds.includes(ing._id) }"
             @click="toggleExclude(ing._id)"
           >
-            <view class="box">✓</view>
             <view class="ct">
-              <text class="main">不要{{ ing.name }}</text>
-              <text class="hint">含{{ ing.name }}菜谱将被排除</text>
+              <text class="main">{{ ing.label || ('不吃' + ing.name) }}</text>
             </view>
           </view>
           <view v-if="!filterOptions.length" class="m-empty">食材加载中或暂无食材数据</view>
@@ -217,6 +242,7 @@ import { ref, computed } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
 import { isDark } from '@/utils/theme'
+import { foodEmoji } from '@/utils/foodEmoji'
 import TabBar from '@/components/TabBar.vue'
 import Disclaimer from '@/components/Disclaimer.vue'
 import RecipeCard from '@/components/RecipeCard.vue'
@@ -229,17 +255,26 @@ const loading = ref(false)
 const result = ref(null)
 const dishResult = ref(null)
 const exerciseResult = ref(null)
+// 随机食材：菜品类型筛选（'' = 全部）
+const dishType = ref('')
+const dishTypes = [
+  { key: '', label: '全部' },
+  { key: 'noodle', label: '面' },
+  { key: 'rice', label: '盖饭' },
+  { key: 'sandwich', label: '三明治' },
+  { key: 'stirfry', label: '炒菜' }
+]
 
 // 主按钮文案随模式变化
 const mainBtnText = computed(() => {
   if (mode.value === 'exercise') return loading.value ? '随机中...' : '随机运动'
   if (mode.value === 'fullRandom') return loading.value ? '组合中...' : '随机食材'
-  return loading.value ? '生成中...' : '生成菜单'
+  return loading.value ? '生成中...' : '随机菜单'
 })
 
 // 空状态提示文案
 const emptyText = computed(() => {
-  if (mode.value === 'heatLimit') return '拖动滑块设置热量区间，点击「生成菜单」为你随机搭配 2~4 道菜谱'
+  if (mode.value === 'heatLimit') return '拖动滑块设置热量区间，点击「随机菜单」为你随机搭配 2~4 道菜品'
   if (mode.value === 'fullRandom') return '点击「随机食材」，随机抽取 2~4 种食材，为它们组合出一道菜'
   return '点击「随机运动」，按体重随机推荐一项运动'
 })
@@ -247,13 +282,13 @@ const emptyText = computed(() => {
 // ---- 忌口筛选状态（仅本次页面会话内保留）----
 // 先放默认 mock 数据，保证弹窗不会空；云端 ingredient 数据加载成功后覆盖
 const filterOptions = ref([
-  { _id: 'mock-cilantro', name: '香菜' },
-  { _id: 'mock-onion', name: '洋葱' },
-  { _id: 'mock-pork', name: '猪肉' },
-  { _id: 'mock-garlic', name: '大蒜' },
-  { _id: 'mock-seafood', name: '海鲜' },
-  { _id: 'mock-mushroom', name: '蘑菇' }
+  { _id: 'mock-cilantro', name: '香菜', label: '不吃香菜' },
+  { _id: 'mock-pork', name: '猪肉', label: '不吃猪肉' },
+  { _id: 'mock-carrot', name: '胡萝卜', label: '不吃胡萝卜' },
+  { _id: 'mock-onion', name: '洋葱', label: '不吃洋葱' }
 ])
+// 忌口筛选暂时固定只展示这 4 种食材（顺序即展示顺序）
+const FILTER_NAMES = ['香菜', '猪肉', '胡萝卜', '洋葱']
 const excludeIds = ref([])
 const tempExcludeIds = ref([])
 const showFilter = ref(false)
@@ -266,7 +301,13 @@ async function loadFilterOptions() {
     const res = await Promise.race([fetchP, timeoutP])
     const ret = res.result || {}
     if (ret.code === 'OK' && ret.data && ret.data.length) {
-      filterOptions.value = ret.data
+      // 只保留固定 4 种忌口食材，按 FILTER_NAMES 顺序；用真实 _id 才能命中云端排除逻辑
+      const picked = []
+      for (const name of FILTER_NAMES) {
+        const hit = ret.data.find(ing => ing.name === name)
+        if (hit) picked.push({ _id: hit._id, name, label: '不吃' + name })
+      }
+      if (picked.length) filterOptions.value = picked
     }
   } catch (e) {
     // 超时 / 云函数未部署：保留默认 mock 数据即可
@@ -315,7 +356,7 @@ async function generate() {
   try {
     if (mode.value === 'fullRandom') {
       // 随机食材：云端随机抽取食材并组合菜名
-      const res = await callFunction('recipeService', { action: 'randomDish' })
+      const res = await callFunction('recipeService', { action: 'randomDish', dishType: dishType.value || undefined })
       const ret = res.result || {}
       if (ret.code === 'OK') {
         dishResult.value = ret.data
@@ -336,7 +377,7 @@ async function generate() {
       uni.pageScrollTo({ scrollTop: 0, duration: 200 })
     } else if (ret.code === 'NO_MATCH') {
       uni.showModal({
-        title: '暂无符合条件菜谱',
+        title: '暂无符合条件菜品',
         content: ret.message || '请放宽忌口条件（取消部分忌口或扩大热量区间）',
         showCancel: false,
         confirmText: '知道了',
@@ -351,6 +392,12 @@ async function generate() {
   } finally {
     loading.value = false
   }
+}
+
+// ---- 跳转食材详情页 ----
+function goIngDetail(ingredientId) {
+  if (!ingredientId) return
+  uni.navigateTo({ url: `/pages/ingredient/detail?id=${ingredientId}` })
 }
 
 // ---- 随机运动：云端按体重随机返回一项运动 ----
@@ -627,21 +674,30 @@ async function randomExercise() {
 
   .top {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
+    flex-wrap: nowrap;
     margin-bottom: 28rpx;
 
     .t-l {
-      .big { font-size: 54rpx; font-weight: 800; letter-spacing: -1rpx; }
-      .s { display: block; font-size: 23rpx; opacity: 0.9; margin-top: 4rpx; }
+      display: flex;
+      align-items: baseline;
+      gap: 10rpx;
+      flex-shrink: 0;
+
+      .big { font-size: 30rpx; font-weight: 800; letter-spacing: -0.5rpx; }
+      .s { font-size: 22rpx; opacity: 0.9; }
     }
 
     .price {
+      display: flex;
+      align-items: baseline;
+      gap: 10rpx;
+      flex-shrink: 0;
       font-size: 22rpx;
-      opacity: 0.9;
-      text-align: right;
+      opacity: 0.95;
 
-      b { display: block; font-size: 34rpx; font-weight: 700; }
+      b { font-size: 30rpx; font-weight: 800; letter-spacing: -0.5rpx; }
     }
   }
 
@@ -729,36 +785,25 @@ async function randomExercise() {
   display: flex;
   align-items: center;
   gap: 22rpx;
-  padding: 22rpx 0;
-  border-bottom: 1rpx solid var(--ld-line);
-
-  &:last-child { border-bottom: 0; }
-
-  .box {
-    width: 42rpx;
-    height: 42rpx;
-    border-radius: 12rpx;
-    border: 3rpx solid var(--ld-text-3);
-    display: grid;
-    place-items: center;
-    color: transparent;
-    font-size: 24rpx;
-    font-weight: 900;
-    flex-shrink: 0;
-  }
+  padding: 28rpx 24rpx;
+  border-radius: 20rpx;
+  margin-bottom: 14rpx;
+  background: var(--ld-bg-2, #f2f2f2);
+  border: 2rpx solid transparent;
+  transition: all 0.2s;
 
   &.on {
-    .box {
-      background: var(--ld-primary);
-      border-color: var(--ld-primary);
-      color: #fff;
-    }
-    .main { font-weight: 700; color: var(--ld-primary-dark); }
+    background: var(--ld-primary-soft);
+    border-color: var(--ld-primary);
   }
 
+  &:last-child { margin-bottom: 0; }
+
   .ct { flex: 1; min-width: 0; }
-  .main { display: block; font-size: 27rpx; color: var(--ld-text); }
+  .main { display: block; font-size: 28rpx; color: var(--ld-text); font-weight: 600; }
   .hint { display: block; font-size: 21rpx; color: var(--ld-text-3); margin-top: 4rpx; }
+
+  &.on .main { color: var(--ld-primary-dark); font-weight: 700; }
 }
 .m-empty {
   text-align: center;
@@ -773,19 +818,11 @@ async function randomExercise() {
 
   :deep(.wd-button) { flex: 1; }
 }
-/* ===== 随机食材结果 ===== */
-.dish-summary {
-  margin-top: 20rpx;
-  padding: 32rpx;
-  border-radius: var(--ld-radius-md);
-  background: linear-gradient(135deg, var(--ld-primary) 0%, var(--ld-primary-dark) 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
+/* ===== 随机食材汇总卡（复用 .summary 绿色渐变卡） ===== */
+.summary.dish-summary .price-txt {
+  font-size: 22rpx;
+  opacity: 0.85;
 }
-.dish-name { font-size: 40rpx; font-weight: 800; color: #fff; }
-.dish-cal { font-size: 24rpx; color: rgba(255, 255, 255, 0.85); }
 .dish-ings {
   display: flex;
   flex-direction: column;
@@ -794,14 +831,58 @@ async function randomExercise() {
 }
 .di {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 14rpx;
   padding: 20rpx 24rpx;
   border-radius: 20rpx;
   background: var(--ld-card);
   border: 1rpx solid var(--ld-line);
 
-  .di-n { font-size: 28rpx; font-weight: 600; color: var(--ld-text); }
-  .di-w { font-size: 22rpx; color: var(--ld-text-3); }
+  .di-img {
+    width: 56rpx;
+    height: 56rpx;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+  }
+  .di-emoji { font-size: 40rpx; line-height: 1; flex-shrink: 0; }
+  .di-n { font-size: 28rpx; font-weight: 600; color: var(--ld-text); flex: 1; }
+  .di-w { font-size: 22rpx; color: var(--ld-text-3); flex-shrink: 0; }
+  .di-arrow { font-size: 32rpx; color: var(--ld-text-3); flex-shrink: 0; }
+}
+
+/* ===== 汇总卡名字（顶部） ===== */
+.summary .sum-name {
+  display: block;
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 16rpx;
+  line-height: 1.3;
+}
+
+/* ===== 菜品类型筛选 chips ===== */
+.dish-types {
+  display: flex;
+  gap: 16rpx;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 24rpx;
+}
+.dt-chip {
+  padding: 10rpx 28rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  background: var(--ld-bg-2, #f2f2f2);
+  color: var(--ld-text-2);
+  border: 1rpx solid var(--ld-line);
+  transition: all 0.2s;
+
+  &.on {
+    background: var(--ld-primary);
+    color: #fff;
+    font-weight: 600;
+    border-color: var(--ld-primary);
+  }
 }
 </style>
