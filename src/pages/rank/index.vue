@@ -1,7 +1,7 @@
-<!-- 文件路径：src/pages/rank/index.vue -->
+﻿<!-- 文件路径：src/pages/rank/index.vue -->
 <!-- 积分排行榜：按积分降序，分页加载，举报按钮仅 UI 占位（逻辑留待后续迭代） -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page">
     <view class="cause-note">排行榜仅展示用户打卡行为数据（昵称 / 头像 / 积分），不代表平台立场。</view>
 
     <view v-if="list.length" class="card ld-card">
@@ -38,9 +38,8 @@
 
 <script setup>
 import { ref } from 'vue'
-import { onShow, onReachBottom } from '@dcloudio/uni-app'
+import { onShow, onReachBottom, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
 import Disclaimer from '@/components/Disclaimer.vue'
 
 const list = ref([])
@@ -85,6 +84,9 @@ onReachBottom(() => {
 function onReport() {
   uni.showToast({ title: '举报功能即将上线', icon: 'none' })
 }
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>

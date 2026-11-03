@@ -3,7 +3,7 @@
 // 入参 action：
 //   list    运动库列表（按用户体重换算每分钟消耗）
 //   detail  单个运动详情，需 exerciseId
-//   random  随机返回一项运动 + 建议时长与消耗
+//   random  随机返回 2~3 项运动 + 每项建议时长与消耗 + 合计消耗
 const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
@@ -11,8 +11,6 @@ const db = cloud.database()
 
 // 用户未录入体重时的默认参考体重（kg）
 const DEFAULT_WEIGHT = 60
-// 默认建议运动时长（分钟）
-const DEFAULT_MINUTES = 30
 
 // 读取集合全部数据（分批兜底）
 async function getAll(collection) {
@@ -53,14 +51,63 @@ function shape(ex, weight) {
     name: ex.name,
     category: ex.category || '有氧',
     icon: ex.icon || '🏃',
+    imageUrl: ex.imageUrl || '',
     met,
     benefits: ex.benefits || '',
     desc: ex.desc || '',
     tip: ex.tip || '',
     weight,
     kcalPerMin: kpm,
-    kcalPer30min: kpm * DEFAULT_MINUTES
+    kcalPer30min: kpm * 30
   }
+}
+
+// 按 MET 强度给一项运动挑选合适的建议时长：强度越高时长越短
+// 强度分档（按 MET）：低 <4.5；中 4.5~7.5；高 >7.5
+function metBand(met) {
+  const m = Number(met) || 0
+  if (m < 4.5) return 'low'
+  if (m <= 7.5) return 'mid'
+  return 'high'
+}
+
+// 分钟取 5 的倍数，且不少于 5
+function round5(n) {
+  return Math.max(5, Math.round((Number(n) || 0) / 5) * 5)
+}
+
+// 按时长模式：把 targetMinutes 按 1/MET 权重分给各项（强度越高时间越短），
+// 差额以 5 分钟为步长在各项间微调，保证总和恰好等于目标
+function allocateMinutes(items, targetMinutes) {
+  const weights = items.map(x => 1 / Math.max(x.met, 1))
+  const wSum = weights.reduce((a, b) => a + b, 0)
+  const mins = items.map((x, i) => Math.min(round5(targetMinutes * weights[i] / wSum), 120))
+  let diff = targetMinutes - mins.reduce((a, b) => a + b, 0)
+  let guard = 0
+  while (diff !== 0 && guard++ < 72) {
+    for (let i = 0; i < mins.length && diff !== 0; i++) {
+      if (diff > 0 && mins[i] < 120) { mins[i] += 5; diff -= 5 }
+      else if (diff < 0 && mins[i] > 5) { mins[i] -= 5; diff += 5 }
+    }
+  }
+  return mins
+}
+
+// 按热量模式：初始按 1/MET 权重给各项分配「热量份额」换算时长，再整体缩放迭代逼近目标消耗
+function allocateBurnMinutes(items, targetBurn) {
+  const weights = items.map(x => 1 / Math.max(x.met, 1))
+  const wSum = weights.reduce((a, b) => a + b, 0)
+  let mins = items.map((x, i) =>
+    Math.min(round5((targetBurn * weights[i] / wSum) / Math.max(x.kcalPerMin, 0.1)), 120)
+  )
+  for (let it = 0; it < 4; it++) {
+    const total = items.reduce((s, x, i) => s + x.kcalPerMin * mins[i], 0)
+    if (total <= 0) break
+    const scale = targetBurn / total
+    if (Math.abs(scale - 1) < 0.05) break
+    mins = items.map((x, i) => Math.min(round5(mins[i] * scale), 120))
+  }
+  return mins
 }
 
 exports.main = async (event) => {
@@ -94,11 +141,43 @@ exports.main = async (event) => {
     const weight = await getUserWeight(OPENID)
     const exercises = await getAll('exercise')
     if (!exercises.length) return { code: 'NO_DATA', message: '运动库暂无数据' }
-    const ex = exercises[Math.floor(Math.random() * exercises.length)]
-    const data = shape(ex, weight)
-    data.suggestMinutes = DEFAULT_MINUTES
-    data.suggestBurn = data.kcalPerMin * DEFAULT_MINUTES
-    return { code: 'OK', data }
+
+    // 计划模式：duration=按时长 / calorie=按热量；intensity=强度过滤（any/low/mid/high）
+    const {
+      planMode = 'duration',
+      targetMinutes = 30,
+      minBurn = 150,
+      maxBurn = 300,
+      intensity = 'any'
+    } = event || {}
+
+    // 强度过滤：命中分档的池子不足 2 项时放宽为全部
+    let pool = exercises
+    if (intensity && intensity !== 'any') {
+      const filtered = exercises.filter(e => metBand(Number(e.met) || 0) === intensity)
+      if (filtered.length >= 2) pool = filtered
+    }
+
+    // 随机 2~3 项不重复运动
+    const count = Math.min(pool.length, 2 + Math.floor(Math.random() * 2))
+    const shuffled = pool.slice().sort(() => Math.random() - 0.5)
+    const picked = shuffled.slice(0, count).map(ex => shape(ex, weight))
+
+    // 按模式分配每项建议时长
+    let minutes
+    if (planMode === 'calorie') {
+      const lo = Math.max(50, Number(minBurn) || 150)
+      const hi = Math.max(lo, Number(maxBurn) || lo)
+      minutes = allocateBurnMinutes(picked, (lo + hi) / 2)
+    } else {
+      const t = Math.min(Math.max(Number(targetMinutes) || 30, 10), 120)
+      minutes = allocateMinutes(picked, t)
+    }
+
+    const list = picked.map((x, i) => ({ ...x, suggestMinutes: minutes[i], suggestBurn: x.kcalPerMin * minutes[i] }))
+    const totalBurn = list.reduce((s, x) => s + x.suggestBurn, 0)
+    const totalMinutes = list.reduce((s, x) => s + x.suggestMinutes, 0)
+    return { code: 'OK', data: { list, totalBurn, totalMinutes, weight } }
   }
 
   return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / random' }

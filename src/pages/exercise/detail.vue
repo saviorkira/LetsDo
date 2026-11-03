@@ -1,15 +1,25 @@
-<!-- 文件路径：src/pages/exercise/detail.vue -->
+﻿<!-- 文件路径：src/pages/exercise/detail.vue -->
 <!-- 运动详情页：运动好处 / 热量消耗 / 消耗计算过程 / 运动要点 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
     <template v-if="detail">
-      <!-- 顶部图标区 -->
-      <view class="hero">
-        <view class="hero-icon">{{ detail.icon || '🏃' }}</view>
-        <view class="ttl">
-          <text class="b">{{ detail.name }}</text>
-          <text class="s">{{ detail.desc }}</text>
-        </view>
+      <!-- 顶部大图区：有配图时图片填满+左下标题，下拉可放大至图片真实高度（参考微信朋友圈）；无配图则渐变底+emoji 居中 -->
+      <view class="hero" :class="{ 'has-img': detail.imageUrl }" :style="detail.imageUrl ? heroStyle : null">
+        <template v-if="detail.imageUrl">
+          <image class="hero-img" :src="detail.imageUrl" mode="aspectFill" @load="onHeroImgLoad" />
+          <view class="grad"></view>
+          <view class="ttl">
+            <text class="b">{{ detail.name }}</text>
+            <text class="s">{{ detail.desc }}</text>
+          </view>
+        </template>
+        <template v-else>
+          <view class="hero-icon">{{ detail.icon || '🏃' }}</view>
+          <view class="ttl">
+            <text class="b">{{ detail.name }}</text>
+            <text class="s">{{ detail.desc }}</text>
+          </view>
+        </template>
       </view>
 
       <!-- 运动好处 -->
@@ -77,14 +87,18 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
+import { useHeroStretch } from '@/utils/heroStretch'
 import Disclaimer from '@/components/Disclaimer.vue'
 
 const detail = ref(null)
 const loading = ref(false)
 const showCalc = ref(false)
+
+// 朋友圈式下拉放大（无配图时禁用）
+const { heroStyle, onTouchStart, onTouchMove, onTouchEnd, onHeroImgLoad } =
+  useHeroStretch(() => !!(detail.value && detail.value.imageUrl))
 
 const kpm = computed(() => Number(detail.value && detail.value.kcalPerMin) || 0)
 const k30 = computed(() => Number(detail.value && detail.value.kcalPer30min) || 0)
@@ -110,6 +124,9 @@ onLoad(async (query) => {
     loading.value = false
   }
 })
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>
@@ -119,7 +136,7 @@ onLoad(async (query) => {
   padding-bottom: 40rpx;
 }
 
-/* 顶部图标区 */
+/* 顶部区：无图时渐变底+emoji 居中；有图时图片填满+左下标题（参考菜谱详情页） */
 .hero {
   background: linear-gradient(145deg, var(--ld-primary-soft), var(--ld-primary));
   padding: 56rpx 40rpx 48rpx;
@@ -127,6 +144,15 @@ onLoad(async (query) => {
   flex-direction: column;
   align-items: center;
   text-align: center;
+
+  &.has-img {
+    position: relative;
+    height: 440rpx;
+    padding: 0;
+    display: block;
+    background: none;
+    text-align: left;
+  }
 
   .hero-icon {
     width: 160rpx;
@@ -140,9 +166,30 @@ onLoad(async (query) => {
     margin-bottom: 24rpx;
   }
 
+  .hero-img {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .grad {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.55));
+  }
+
   .ttl {
     .b { display: block; font-size: 42rpx; font-weight: 800; color: #fff; }
     .s { display: block; font-size: 24rpx; color: rgba(255, 255, 255, 0.9); margin-top: 10rpx; }
+  }
+
+  &.has-img .ttl {
+    position: absolute;
+    left: 32rpx;
+    right: 32rpx;
+    bottom: 28rpx;
+
+    .s { color: rgba(255, 255, 255, 0.85); margin-top: 8rpx; }
   }
 }
 

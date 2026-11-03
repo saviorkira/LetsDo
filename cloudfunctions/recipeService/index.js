@@ -7,6 +7,7 @@
 //   listIngredients  食材库列表（菜品库食材 Tab 用）
 //   ingredientDetail 食材详情（营养/价格 + 用到它的菜品列表），需 ingredientId
 //   randomDish       随机食材组合
+//   randomCocktail   随机调酒（按基酒 + 辅料组合一杯）
 //
 // 【价格口径】ingredient.price 为「元/斤（500g）」；
 // 计算食材成本时统一按 weight/500 换算（此前误按 weight/100，导致菜品价格放大 5 倍）
@@ -63,7 +64,9 @@ function calcRecipe(recipe, ingredientMap) {
       nutritionDesc: ing.nutritionDesc || '',
       imageUrl: ing.imageUrl || '',
       isStaple: !!ing.isStaple,
-      isVegetable: !!ing.isVegetable
+      isVegetable: !!ing.isVegetable,
+      isAlcohol: !!ing.isAlcohol,
+      isDrink: !!ing.isDrink
     })
   }
 
@@ -191,7 +194,7 @@ exports.main = async (event) => {
     let staplePool = ingredients.filter(i => i.isStaple && i.name && !NOT_STAPLE_BASE.includes(i.name))
     // 配菜池：排除佐料/主食，炒菜模式额外排除饮品/汤品/甜品
     const DRINK_OR_SOUP = ['豆浆', '牛奶', '酸奶', '果汁', '汤', '冰淇淋', '蜂蜜', '糖浆']
-    const sidePool = ingredients.filter(i => !i.isCondiment && !i.isStaple && i.name && !DRINK_OR_SOUP.some(d => i.name.includes(d)))
+    const sidePool = ingredients.filter(i => !i.isCondiment && !i.isStaple && !i.isAlcohol && !i.isDrink && i.name && !DRINK_OR_SOUP.some(d => i.name.includes(d)))
 
     const NOODLE_STAPLES = ['面条', '手擀面', '乌冬面', '荞麦面', '意大利面', '粉丝']
     const BREAD_STAPLES = ['吐司面包', '全麦面包']
@@ -223,7 +226,9 @@ exports.main = async (event) => {
         fat: (Number(i.fat) || 0) * r,
         carbohydrate: (Number(i.carbohydrate) || 0) * r,
         price: (Number(i.price) || 0) * (w / 500), // 价格基准：元/斤
-        imageUrl: i.imageUrl || ''
+        imageUrl: i.imageUrl || '',
+        isAlcohol: !!i.isAlcohol,
+        isDrink: !!i.isDrink
       }
     }
     const list = sides.map(i => mk(i, (8 + Math.floor(Math.random() * 8)) * 10)) // 配菜 80~150g
@@ -279,20 +284,129 @@ exports.main = async (event) => {
     }
   }
 
+  // ---- 随机调酒：3~4 种基酒混合（每种 ≤30ml）+ 辅料组合一杯；baseLiquor 可选指定主基酒名（如「伏特加」），空则全池随机 ----
+  if (action === 'randomCocktail') {
+    const { baseLiquor } = event || {}
+    const ingredients = await getAll('ingredient')
+
+    // 基酒池：真基酒 / 力娇酒（可乐、汤力水、冰块这类调酒辅料虽标了 isAlcohol，但不作基酒）
+    const BASE_NAMES = ['伏特加', '金酒', '朗姆酒', '椰子朗姆酒', '龙舌兰', '威士忌', '白兰地', '白酒', '二锅头', '清酒', '梅酒', '绍兴黄酒', '橙味利口酒', '蓝橙力娇酒', '咖啡利口酒', '奶油利口酒', '杏仁利口酒', '蜜桃利口酒', '蜜瓜利口酒', '干味美思', '甜味美思', '金巴利']
+    const basePool = ingredients.filter(i => BASE_NAMES.includes(i.name))
+    if (baseLiquor && !basePool.some(i => i.name === baseLiquor)) return { code: 'NO_DATA', message: '暂无该基酒，换个试试' }
+    if (basePool.length < 3) return { code: 'NO_DATA', message: '基酒数据不足' }
+
+    // 辅料池：按名字白名单匹配（饮料类 + 常见调酒配料）
+    const MIXER_NAMES = ['可乐', '汤力水', '苏打水', '糖浆', '菠萝汁', '椰浆', '薄荷', '冰块', '苦精', '柠檬', '柠檬汁', '青柠', '青柠汁', '橙子', '橙汁', '牛奶', '蜂蜜', '干姜水', '抹茶粉']
+    const mixerPool = ingredients.filter(i => MIXER_NAMES.includes(i.name))
+    if (!mixerPool.length) return { code: 'NO_DATA', message: '辅料数据不足' }
+
+    // 基酒 3~4 种混合（参考长岛冰茶）；指定主基酒时必含且排首位
+    const shuffledBases = basePool.slice().sort(() => Math.random() - 0.5)
+    const baseCount = Math.min(3 + Math.floor(Math.random() * 2), shuffledBases.length)
+    let bases = shuffledBases.slice(0, baseCount)
+    if (baseLiquor) {
+      const specified = basePool.find(i => i.name === baseLiquor)
+      bases = [specified].concat(shuffledBases.filter(i => i.name !== baseLiquor)).slice(0, baseCount)
+    }
+    const mainBase = bases[0]
+
+    // 辅料洗牌后抽 1~3 种
+    const shuffledMixers = mixerPool.slice().sort(() => Math.random() - 0.5)
+    const mixerCount = 1 + Math.floor(Math.random() * 3)
+    const mixers = shuffledMixers.slice(0, Math.min(mixerCount, shuffledMixers.length))
+
+    // 各辅料用量（g/ml）：液体 90~150，果汁 45~90，糖浆 10~20，椰浆 30~60，薄荷 5~10，苦精 2~3，柠檬 10~30，冰块 50~100
+    const mixerWeight = name => {
+      if (['可乐', '汤力水', '苏打水', '干姜水'].includes(name)) return 90 + Math.floor(Math.random() * 61)
+      if (['菠萝汁', '橙汁', '牛奶'].includes(name)) return 45 + Math.floor(Math.random() * 46)
+      if (name === '糖浆') return 10 + Math.floor(Math.random() * 11)
+      if (name === '椰浆') return 30 + Math.floor(Math.random() * 31)
+      if (name === '薄荷') return 5 + Math.floor(Math.random() * 6)
+      if (name === '苦精') return 2 + Math.floor(Math.random() * 2)
+      if (['柠檬', '青柠', '橙子'].includes(name)) return 10 + Math.floor(Math.random() * 21)
+      if (name === '冰块') return 50 + Math.floor(Math.random() * 51)
+      return 30 + Math.floor(Math.random() * 31)
+    }
+
+    const mk = (i, w) => {
+      const r = w / 100
+      return {
+        ingredientId: i._id,
+        name: i.name,
+        weight: w,
+        calories: (Number(i.calories) || 0) * r,
+        protein: (Number(i.protein) || 0) * r,
+        fat: (Number(i.fat) || 0) * r,
+        carbohydrate: (Number(i.carbohydrate) || 0) * r,
+        price: (Number(i.price) || 0) * (w / 500), // 价格基准：元/斤
+        imageUrl: i.imageUrl || '',
+        isAlcohol: !!i.isAlcohol,
+        isDrink: !!i.isDrink
+      }
+    }
+
+    // 每种基酒 10~30ml（均不超过 30ml）
+    const list = bases.map(b => mk(b, 10 + Math.floor(Math.random() * 21)))
+    for (const m of mixers) list.push(mk(m, mixerWeight(m.name)))
+
+    const totalCalories = list.reduce((s, x) => s + x.calories, 0)
+    const totalProtein = list.reduce((s, x) => s + x.protein, 0)
+    const totalFat = list.reduce((s, x) => s + x.fat, 0)
+    const totalCarbohydrate = list.reduce((s, x) => s + x.carbohydrate, 0)
+    const totalPrice = list.reduce((s, x) => s + x.price, 0)
+
+    // 酒名：按主基酒 + 辅料组合起名，朗朗上口优先
+    const has = n => mixers.some(m => m.name.includes(n))
+    let cocktailName
+    if (has('可乐')) cocktailName = `${mainBase.name}可乐`
+    else if (has('汤力水')) cocktailName = `${mainBase.name}汤力`
+    else if (has('苏打水') || has('干姜水')) cocktailName = `${mainBase.name}海波`
+    else if (has('菠萝汁') && has('椰浆')) cocktailName = `${mainBase.name}椰林`
+    else if (has('椰浆')) cocktailName = `${mainBase.name}椰香特调`
+    else if ((has('柠檬') || has('青柠')) && has('糖浆')) cocktailName = `${mainBase.name}酸酒`
+    else if (has('薄荷')) cocktailName = `${mainBase.name}莫吉多`
+    else if (has('苦精')) cocktailName = `${mainBase.name}古典`
+    else if (has('冰块') && mixers.length === 1) cocktailName = `${mainBase.name}加冰`
+    else cocktailName = `${mainBase.name}${mixers[0].name.replace(/汁$/, '')}特调`
+
+    return {
+      code: 'OK',
+      data: {
+        dishName: cocktailName,
+        ingredientList: list.map(x => ({ ...x, calories: Math.round(x.calories), protein: +x.protein.toFixed(1), fat: +x.fat.toFixed(1), carbohydrate: +x.carbohydrate.toFixed(1), price: +x.price.toFixed(1) })),
+        summary: {
+          totalCalories: Math.round(totalCalories),
+          totalProtein: +totalProtein.toFixed(1),
+          totalFat: +totalFat.toFixed(1),
+          totalCarbohydrate: +totalCarbohydrate.toFixed(1),
+          totalPrice: +totalPrice.toFixed(1),
+          ingredientCount: list.length,
+          totalWeight: list.reduce((s, x) => s + x.weight, 0)
+        }
+      }
+    }
+  }
+
   // ---- 食材库列表（菜品库 Tab 用）----
   if (action === 'listIngredients') {
     const { keyword, category } = event || {}
     let all = await getAll('ingredient')
-    // 分类筛选：meat 肉类 / veg 蔬菜 / staple 主食 / condiment 调料 / drink 饮品 / seafood 海鲜 / other 其他
+    // 分类筛选：meat 肉类 / veg 蔬菜 / staple 主食 / condiment 调料 / drink 饮品 / seafood 海鲜 / alcohol 酒类 / other 其他
     const groups = {
       meat: i => !i.isStaple && !i.isCondiment && ['猪肉','牛肉','羊肉','鸭肉','鸡肉','火腿','香肠','培根','五花肉','里脊','鸡腿','鸡翅','鸡肉','火腿','香肠','培根'].some(k => i.name.includes(k)) || ['meat','chicken','beef','pork','lamb','duck','bacon','ham','sausage'].some(k => String(i.imageUrl || '').toLowerCase().includes(k)),
       seafood: i => ['鱼','虾','蟹','贝','鱿','蚌','扇贝','生蚝','三文鱼','带鱼','鳕鱼','草鱼','鲈鱼','基围虾','虾仁','鱿鱼'].some(k => i.name.includes(k)) || ['fish','shrimp','cod','salmon','carp','squid'].some(k => String(i.imageUrl || '').toLowerCase().includes(k)),
       veg: i => !i.isStaple && !i.isCondiment && !i.isDrink,
       staple: i => !!i.isStaple,
       condiment: i => !!i.isCondiment,
-      drink: i => !!i.isDrink
+      drink: i => !!i.isDrink,
+      alcohol: i => !!i.isAlcohol
     }
-    if (category && groups[category]) all = all.filter(groups[category])
+    if (category && groups[category]) {
+      all = all.filter(groups[category])
+    } else if (!category) {
+      // 食材 Tab 默认排除酒类（酒有独立 Tab）
+      all = all.filter(i => !i.isAlcohol)
+    }
     const kw = String(keyword || '').trim().toLowerCase()
     if (kw) all = all.filter(i => (i.name || '').toLowerCase().includes(kw))
     return {
@@ -307,7 +421,8 @@ exports.main = async (event) => {
         carbohydrate: Number(i.carbohydrate) || 0,
         price: Number(i.price) || 0,
         isCondiment: !!i.isCondiment,
-        isStaple: !!i.isStaple
+        isStaple: !!i.isStaple,
+        isAlcohol: !!i.isAlcohol
       }))
     }
   }
@@ -364,5 +479,5 @@ exports.main = async (event) => {
     }
   }
 
-  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / listIngredients / ingredientDetail / filterOptions / randomDish' }
+  return { code: 'INVALID_PARAM', message: 'action 仅支持 list / detail / listIngredients / ingredientDetail / filterOptions / randomDish / randomCocktail' }
 }

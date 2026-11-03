@@ -1,6 +1,96 @@
 # 更新日志
 
-## v1.1.0（2026-10-19）
+## v1.3.2（2026-10-30）
+
+- 内容与 v1.3.1 完全一致，仅递增版本号重新上传（用于恢复「上传即自动成为体验版」的流程）
+
+## v1.3.1（2026-10-29）
+
+### 修复
+
+- 右上角「转发给朋友」「分享到朋友圈」显示为灰色不可点：9 个页面（random / recipe library & detail / ingredient detail / exercise library & detail / avatar / mine / rank）全部补齐 `onShareAppMessage` / `onShareTimeline` 回调
+
+## v1.3.0（2026-10-28）
+
+### 新增
+
+- manifest 开启 `enableShareAppMessage` / `enableShareTimeline`（微信右上角转发/朋友圈入口）
+
+### 优化
+
+- 液体类食材与酒类用量改用 **ml** 显示：云函数返回 `isAlcohol` / `isDrink`，前端 `weightUnit()` / `calorieUnit()` 动态切换 g↔ml，热量基准同步改为 kcal/100ml
+- 默认强制亮色主题，禁用跟随系统与自动切换暗色（`manifest.darkmode = false`，移除「我的」页暗色开关及 8 个页面的 dark class 绑定）
+
+### 修复
+
+- 随机菜单页「生成中」卡死：Tab 页新增 `onShow` 强制重置 `loading`，避免云函数超时后按钮永久禁用
+- 运动库合并重复项「爬山」「登山」，保留数据完整的「爬山」
+- ingredient 集合删除重复项「大蒜」冗余记录（无菜谱引用）
+
+> 注：v1.0.4 ~ v1.2.9 期间版本号未在 git 中单独记录，以下条目依据文件时间戳、skill 定稿时间、上传历史追溯整理。
+
+## v1.2.9（2026-10-28 上午）—— 数据去重 + 随机卡死修复（初稿）
+
+- 合并运动库「爬山」「登山」（删除数据残缺的「登山」）
+- ingredient 集合删除重复项「大蒜」冗余记录（价格 2 元/斤、无菜谱引用）
+- 随机菜单页修复 Tab 页切走再回来 loading 卡死（引入 onShow 钩子，强制重置）
+
+## v1.2.8（2026-10-27）—— 饰品商店皮肤 + 温馨小屋
+
+### 新增
+
+- 温馨小屋背景定价 50 积分上架，全部背景补缩略图
+- 房子皮肤新增 **蘑菇 / 糖果 / 樱花 / 城堡** 4 款，全部配缩略图
+
+### 修复
+
+- 修饰品商店弹窗出口箭头圆圈在部分机型上被弹窗遮罩穿透，点击失效
+- 随机菜单提示段合并消除多余空白，卡片高度不再忽大忽小
+
+## v1.2.5（2026-10-26）—— 运动库扩充 + 菜谱配图全部到位
+
+### 新增
+
+- 运动库扩充至 **82 项**（新增 22 项：瑜伽入门、普拉提、椭圆机、划船机、拳击操等）
+- 菜谱库全量 **201 道**，全部补齐 CloudBase 存储菜品图（768×768，正俯视平拍 ins 风定稿版，浅木色桌面 + 粗陶斑点盘 + 亚麻餐巾）
+
+### 修复
+
+- 修复 60 张菜品图「上传成功但 imageUrl 未写库」事故（原因：tcb-admin-node `.update({data:{imageUrl}})` 把 data 当成字段名写入，imageUrl 静默丢失；统一改用 MCP writeNoSqlDatabaseContent + $set 模式）
+
+## v1.2.0（2026-10-25）—— 随机调酒 + 云函数重构
+
+### 新增
+
+- **随机调酒**：随机页新增「调酒」Tab，按基酒 + 辅料组合生成经典鸡尾酒（金汤力、莫吉托、长岛冰茶、玛格丽特等），云函数返回配方与热量
+- 云函数 **recipeService** 重构：新增 `randomCocktail()` / `calcRecipe()`，统一生成菜单与调酒
+- ingredient 集合新增 `isAlcohol` / `isDrink` / `nutritionDesc` 字段，酒类与饮品标记就绪
+
+### 优化
+
+- 图片云存储 ACL 统一为 PRIVATE，所有 imageUrl 字段强制改用 `cloud://` fileID（https CDN 地址在 PRIVATE 桶返回 403，小程序原生协议不受限）
+
+## v1.1.0（2026-10-24）—— 菜品配图批量生成（ins 风定稿）
+
+### 新增
+
+- 全量 201 道菜谱生成 AI 配图（初版尝试 45° 侧俯拍 + 白盘，后推翻重画）
+- **酒类图片专属规则定稿**：酒 ≠ 菜，禁止画进盘子。按酒型匹配容器（高球杯、古典杯、V 形马天尼杯、品脱杯等），30° 微俯拍
+- 菜品图批量压缩流水线：GenerateImage → PowerShell System.Drawing 裁底 10%（去 AI 水印）→ 768×768 / q85 → upload → MCP 写库
+
+### 修复
+
+- 修复 tcb-admin-node `.update({data:{imageUrl}})` 写库静默丢失 imageUrl 事故（改为 `.update({imageUrl})` 平铺或 MCP）
+
+## v1.0.4（2026-10-23）—— 食材配图批量生成
+
+### 新增
+
+- 全量 170 种食材生成 AI 配图，规格 **256×256 / ≤15KB / 浅灰 studio 背景 / 微距特写**
+- 云端路径 `ingredients/{英文名}.jpg`，数据库 imageUrl 统一写入 `cloud://letsdoenv-d1gndgyhv2f9d22fb.6c65-letsdoenv-d1gndgyhv2f9d22fb-1507384605/ingredients/{en}.jpg`
+- 禁用 2560×2560 高清图（单张解码占 26MB 内存，低端机卡顿闪退），定稿统一 256×256
+
+## v1.0.1（2026-10-19）
 
 对比 v1.0.0（初始版本：仅首页菜单生成 + generateMenu 云函数），本次为全量功能扩展版本。
 

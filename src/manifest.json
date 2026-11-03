@@ -11,9 +11,11 @@
     "appid": "wx47509108d337878e",
     "usingComponents": true,
     "lazyCodeLoading": "requiredComponents",
-    "darkmode": true,
+    "darkmode": false,
     "themeLocation": "theme.json",
     "cloudfunctionRoot": "cloudfunctions/",
+    "enableShareAppMessage": true,
+    "enableShareTimeline": true,
     "setting": {
       "urlCheck": true,
       "es6": true,

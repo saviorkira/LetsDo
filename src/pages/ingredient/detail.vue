@@ -1,11 +1,11 @@
-<!-- 文件路径：src/pages/ingredient/detail.vue -->
+﻿<!-- 文件路径：src/pages/ingredient/detail.vue -->
 <!-- 食材详情页：大图 / 每100g营养 / 价格参考 / 营养亮点 / 用到它的菜品 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
     <template v-if="detail">
-      <!-- 顶部大图区 -->
-      <view class="hero">
-        <image v-if="detail.imageUrl" class="hero-img" :src="detail.imageUrl" mode="aspectFill" />
+      <!-- 顶部大图区（下拉可放大至图片真实高度，参考微信朋友圈） -->
+      <view class="hero" :style="heroStyle">
+        <image v-if="detail.imageUrl" class="hero-img" :src="detail.imageUrl" mode="aspectFill" @load="onHeroImgLoad" />
         <view v-else class="hero-img ph">{{ ingIcon }}</view>
         <view class="grad"></view>
         <view class="ttl">
@@ -90,14 +90,18 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
 import { foodEmoji } from '@/utils/foodEmoji'
+import { useHeroStretch } from '@/utils/heroStretch'
 import Disclaimer from '@/components/Disclaimer.vue'
 
 const detail = ref(null)
 const loading = ref(false)
+
+// 朋友圈式下拉放大（无配图时禁用）
+const { heroStyle, onTouchStart, onTouchMove, onTouchEnd, onHeroImgLoad } =
+  useHeroStretch(() => !!(detail.value && detail.value.imageUrl))
 
 // 顶部大图占位图标：按食材名推断贴切 emoji
 const ingIcon = computed(() => {
@@ -139,6 +143,9 @@ onLoad(async (query) => {
     loading.value = false
   }
 })
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>

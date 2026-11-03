@@ -18,7 +18,7 @@
     {
       "path": "pages/recipe/library",
       "style": {
-        "navigationBarTitleText": "菜品库",
+        "navigationBarTitleText": "美食库",
         "navigationBarBackgroundColor": "@navBgColor",
         "navigationBarTextStyle": "@navTxtStyle",
         "backgroundColor": "@bgColor",

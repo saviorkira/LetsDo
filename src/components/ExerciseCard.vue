@@ -2,7 +2,10 @@
 <!-- 运动卡片：图标 / 名称 / 类别 / 好处 / 消耗热量，点击跳转详情（运动库与随机结果共用） -->
 <template>
   <view class="exercise-card ld-card" @click="goDetail">
-    <view class="icon">{{ exercise.icon || '🏃' }}</view>
+    <view class="icon">
+      <image v-if="exercise.imageUrl" class="icon-img" :src="exercise.imageUrl" mode="aspectFill" />
+      <text v-else>{{ exercise.icon || '🏃' }}</text>
+    </view>
     <view class="info">
       <view class="name">
         <text class="t">{{ exercise.name }}</text>
@@ -57,6 +60,9 @@ function goDetail() {
   place-items: center;
   font-size: 56rpx;
   line-height: 1;
+  overflow: hidden;
+
+  .icon-img { width: 100%; height: 100%; }
 }
 
 .info {

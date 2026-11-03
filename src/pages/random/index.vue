@@ -1,78 +1,245 @@
-<!-- 文件路径：src/pages/random/index.vue -->
-<!-- 随机 Tab（默认首页）：热量限定随机 / 完全随机 / 随机运动 三模式 -->
+﻿<!-- 文件路径：src/pages/random/index.vue -->
+<!-- 随机 Tab（默认首页）：随机菜单 / 随机原料（拼好菜·调美酒）/ 随机运动 三模式 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page">
     <!-- 顶部模式分段切换 -->
     <view class="seg">
       <view class="seg-item" :class="{ on: mode === 'heatLimit' }" @click="mode = 'heatLimit'">随机菜单</view>
-      <view class="seg-item" :class="{ on: mode === 'fullRandom' }" @click="mode = 'fullRandom'">随机食材</view>
+      <view class="seg-item" :class="{ on: mode === 'fullRandom' }" @click="mode = 'fullRandom'">随机原料</view>
       <view class="seg-item" :class="{ on: mode === 'exercise' }" @click="mode = 'exercise'">随机运动</view>
     </view>
 
     <!-- 模式面板：统一高度，保证三种模式下「操作按钮」位置完全一致 -->
     <view class="panel">
-      <!-- ========== 热量限定随机 ========== -->
+      <!-- ========== 随机菜单（热量区间） ========== -->
       <template v-if="mode === 'heatLimit'">
-        <view class="cal-card">
-          <view class="label">目标热量区间</view>
-          <view class="kcal-big">
-            <text class="num">{{ calRange[0] }}</text>
-            <text class="sep">—</text>
-            <text class="num">{{ calRange[1] }}</text>
-            <text class="unit">kcal</text>
+        <view class="cal-card plan-card">
+          <!-- 卡头：图标徽章 + 标题 -->
+          <view class="pc-head">
+            <view class="pc-ico">🍽️</view>
+            <view class="pc-titles">
+              <text class="pc-title">随机菜单</text>
+              <text class="pc-sub">随机搭配一顿饭菜</text>
+            </view>
           </view>
-          <view class="kcal-sub">整套菜单总热量需落在此区间</view>
-          <!-- Wot UI 双滑块（v-model 传入数组即为双滑块模式） -->
-          <view class="slider-wrap">
-            <wd-slider v-model="calRange" :min="300" :max="1200" :step="50" />
+
+          <!-- 卡体：目标热量区间可折叠（默认收起只显示当前值，点击展开滑块调节） -->
+          <view class="pc-body">
+            <view class="sec-label sec-toggle" @click="calOpen = !calOpen">
+              目标热量区间
+              <view class="st-right">
+                <text class="sec-badge" :class="{ off: !calLimited }">{{ calLimited ? calRange[0] + '—' + calRange[1] + ' kcal' : '不限' }}</text>
+                <text class="st-arrow" :class="{ up: calOpen }">▾</text>
+              </view>
+            </view>
+            <template v-if="calOpen">
+              <view class="kcal-big">
+                <text class="num">{{ calRange[0] }}</text>
+                <text class="sep">—</text>
+                <text class="num">{{ calRange[1] }}</text>
+                <text class="unit">kcal</text>
+              </view>
+              <!-- Wot UI 双滑块（v-model 传入数组即为双滑块模式） -->
+              <view class="slider-panel">
+                <view class="slider-wrap">
+                  <wd-slider v-model="calRange" :min="300" :max="3000" :step="50" />
+                </view>
+                <view class="ticks"><text>300</text><text>1200</text><text>2100</text><text>3000</text></view>
+              </view>
+            </template>
+
+            <!-- 饮料搭配（可折叠：酒 / 饮料 可多选，默认搭配饮料） -->
+            <view class="sec-label sec-toggle ex-gap" @click="drinkOpen = !drinkOpen">
+              饮料搭配
+              <view class="st-right">
+                <text class="sec-badge" :class="{ off: !includeAlcohol && !includeDrink }">{{ drinkLabel }}</text>
+                <text class="st-arrow" :class="{ up: drinkOpen }">▾</text>
+              </view>
+            </view>
+            <view v-if="drinkOpen" class="chip-row">
+              <view class="chip" :class="{ on: includeAlcohol }" @click="includeAlcohol = !includeAlcohol">酒</view>
+              <view class="chip" :class="{ on: includeDrink }" @click="includeDrink = !includeDrink">饮料</view>
+            </view>
+
+            <!-- 忌口（可折叠：默认没有忌口，点开多选） -->
+            <view class="sec-label sec-toggle ex-gap" @click="excludeOpen = !excludeOpen">
+              忌口
+              <view class="st-right">
+                <text class="sec-badge" :class="{ off: !excludeIds.length }">{{ excludeLabel }}</text>
+                <text class="st-arrow" :class="{ up: excludeOpen }">▾</text>
+              </view>
+            </view>
+            <view v-if="excludeOpen" class="chip-row">
+              <view
+                v-for="ing in filterOptions"
+                :key="ing._id"
+                class="chip"
+                :class="{ on: excludeIds.includes(ing._id) }"
+                @click="toggleExcludeChip(ing._id)"
+              >{{ ing.name }}</view>
+            </view>
           </view>
-          <view class="ticks"><text>300</text><text>600</text><text>900</text><text>1200</text></view>
         </view>
 
         <view class="secondary">
-          <!-- 忌口按钮（虚线胶囊 + 红点） -->
-          <view class="filter-btn" :class="{ on: excludeIds.length }" @click="openFilter">
-            <text>忌口</text>
-            <view v-if="excludeIds.length" class="dot"></view>
-          </view>
-          <!-- 提示行：固定高度，无选中时隐藏但保留占位，避免按钮位移 -->
-          <text class="filter-hint" :class="{ hide: !excludeIds.length }">
+          <!-- 提示行：勾选忌口时才显示，避免菜单卡与按钮之间留出大空白 -->
+          <text v-if="excludeIds.length" class="filter-hint">
             已勾选 <em>{{ excludeIds.length }}</em> 项忌口，生成时将排除对应菜品
           </text>
+          <view class="cause-note">
+            <text class="cn">ℹ️</text>
+            <text>按热量区间随机 2~4 道主菜，搭配酒 / 饮料各 1 杯（默认只配饮料）；区间不限时自动放宽。</text>
+          </view>
         </view>
       </template>
 
       <!-- ========== 完全随机 ========== -->
       <template v-else-if="mode === 'fullRandom'">
-        <view class="random-card">
-          <view class="dice">🎲</view>
-          <text class="t">随机食材，随缘拼菜</text>
-          <text class="s">系统随机抽取 2~4 种食材\n为它们组合出一个合适的菜名</text>
-        </view>
-        <!-- 菜品类型筛选 -->
-        <view class="dish-types">
-          <view
-            v-for="t in dishTypes"
-            :key="t.key"
-            class="dt-chip"
-            :class="{ on: dishType === t.key }"
-            @click="dishType = t.key"
-          >{{ t.label }}</view>
+        <view class="random-card plan-card">
+          <view class="pc-head">
+            <view class="pc-ico">🎲</view>
+            <view class="pc-titles">
+              <text class="pc-title">{{ mixMode === 'cocktail' ? '调美酒，基酒随心配' : '随机原料，随缘拼菜' }}</text>
+              <text class="pc-sub">{{ mixMode === 'cocktail' ? '选一种基酒，随机搭配辅料调出一杯' : '随机抽取 2~4 种食材，组合出一个菜名' }}</text>
+            </view>
+          </view>
+          <view class="pc-body">
+            <!-- 内层模式切换：拼好菜（食材组合）/ 调美酒（基酒调饮） -->
+            <view class="mode-seg">
+              <view class="mode-seg-item" :class="{ on: mixMode === 'food' }" @click="setMixMode('food')">拼好菜</view>
+              <view class="mode-seg-item" :class="{ on: mixMode === 'cocktail' }" @click="setMixMode('cocktail')">调美酒</view>
+            </view>
+
+            <!-- 拼好菜：菜品类型筛选（默认折叠） -->
+            <template v-if="mixMode === 'food'">
+              <view class="sec-label sec-toggle" @click="dishTypeOpen = !dishTypeOpen">
+                菜品类型
+                <view class="st-right">
+                  <text class="sec-badge">{{ dishTypeLabel }}</text>
+                  <text class="st-arrow" :class="{ up: dishTypeOpen }">▾</text>
+                </view>
+              </view>
+              <view v-if="dishTypeOpen" class="chip-row">
+                <view
+                  v-for="t in dishTypes"
+                  :key="t.key"
+                  class="chip"
+                  :class="{ on: dishType === t.key }"
+                  @click="dishType = t.key"
+                >{{ t.label }}</view>
+              </view>
+            </template>
+
+            <!-- 调美酒：基酒选择（默认折叠） -->
+            <template v-else>
+              <view class="sec-label sec-toggle" @click="baseLiquorOpen = !baseLiquorOpen">
+                基酒
+                <view class="st-right">
+                  <text class="sec-badge">{{ baseLiquorLabel }}</text>
+                  <text class="st-arrow" :class="{ up: baseLiquorOpen }">▾</text>
+                </view>
+              </view>
+              <view v-if="baseLiquorOpen" class="chip-row">
+                <view
+                  v-for="b in baseLiquors"
+                  :key="b.key"
+                  class="chip"
+                  :class="{ on: baseLiquor === b.key }"
+                  @click="baseLiquor = b.key"
+                >{{ b.label }}</view>
+              </view>
+            </template>
+          </view>
         </view>
         <view class="secondary">
           <view class="cause-note">
             <text class="cn">ℹ️</text>
-            <text>随机食材模式完全看缘分，不做忌口过滤；需要排除食材请用「随机菜单」。</text>
+            <text>{{ mixMode === 'cocktail' ? '调美酒模式按基酒随机搭配辅料，不做忌口过滤；需要排除食材请用「随机菜单」。' : '拼好菜模式完全看缘分，不做忌口过滤；需要排除食材请用「随机菜单」。' }}</text>
           </view>
         </view>
       </template>
 
       <!-- ========== 随机运动 ========== -->
       <template v-else>
-        <view class="random-card">
-          <view class="dice">🏃</view>
-          <text class="t">随便动一动</text>
-          <text class="s">按你的体重随机推荐一项运动\n并给出建议时长与消耗热量</text>
+        <view class="random-card plan-card">
+          <view class="pc-head">
+            <view class="pc-ico">🏃</view>
+            <view class="pc-titles">
+              <text class="pc-title">随便动一动</text>
+              <text class="pc-sub">按时长或热量，随机定制运动计划</text>
+            </view>
+            <text class="pc-badge">{{ exPlanMode === 'duration' ? exDuration + ' 分钟' : exBurnRange[0] + '—' + exBurnRange[1] + ' kcal' }}</text>
+          </view>
+          <view class="pc-body">
+            <!-- 生成方式：按时长 / 按热量（分段控件） -->
+            <view class="mode-seg">
+              <view class="mode-seg-item" :class="{ on: exPlanMode === 'duration' }" @click="exPlanMode = 'duration'">按时长</view>
+              <view class="mode-seg-item" :class="{ on: exPlanMode === 'calorie' }" @click="exPlanMode = 'calorie'">按热量</view>
+            </view>
+
+            <!-- 按时长：时长单选（默认折叠） -->
+            <template v-if="exPlanMode === 'duration'">
+              <view class="sec-label sec-toggle" @click="exDurationOpen = !exDurationOpen">
+                运动时长
+                <view class="st-right">
+                  <text class="sec-badge">{{ exDuration }} 分钟</text>
+                  <text class="st-arrow" :class="{ up: exDurationOpen }">▾</text>
+                </view>
+              </view>
+              <view v-if="exDurationOpen" class="chip-row">
+                <view
+                  v-for="d in durationOptions"
+                  :key="d"
+                  class="chip"
+                  :class="{ on: exDuration === d }"
+                  @click="exDuration = d"
+                >{{ d }} 分钟</view>
+              </view>
+            </template>
+
+            <!-- 按热量：双滑块区间（默认折叠） -->
+            <template v-else>
+              <view class="sec-label sec-toggle" @click="exBurnOpen = !exBurnOpen">
+                目标热量区间
+                <view class="st-right">
+                  <text class="sec-badge">{{ exBurnRange[0] }}—{{ exBurnRange[1] }} kcal</text>
+                  <text class="st-arrow" :class="{ up: exBurnOpen }">▾</text>
+                </view>
+              </view>
+              <template v-if="exBurnOpen">
+                <view class="kcal-big ex-kcal">
+                  <text class="num">{{ exBurnRange[0] }}</text>
+                  <text class="sep">—</text>
+                  <text class="num">{{ exBurnRange[1] }}</text>
+                  <text class="unit">kcal</text>
+                </view>
+                <view class="slider-panel">
+                  <view class="slider-wrap">
+                    <wd-slider v-model="exBurnRange" :min="50" :max="600" :step="10" />
+                  </view>
+                  <view class="ticks"><text>50</text><text>200</text><text>400</text><text>600</text></view>
+                </view>
+              </template>
+            </template>
+
+            <!-- 训练强度（默认折叠） -->
+            <view class="sec-label sec-toggle ex-gap" @click="exIntensityOpen = !exIntensityOpen">
+              训练强度
+              <view class="st-right">
+                <text class="sec-badge">{{ exIntensityLabel }}</text>
+                <text class="st-arrow" :class="{ up: exIntensityOpen }">▾</text>
+              </view>
+            </view>
+            <view v-if="exIntensityOpen" class="chip-row">
+              <view
+                v-for="it in intensityOptions"
+                :key="it.key"
+                class="chip"
+                :class="{ on: exIntensity === it.key }"
+                @click="exIntensity = it.key"
+              >{{ it.label }}</view>
+            </view>
+          </view>
         </view>
         <view class="secondary">
           <view class="cause-note">
@@ -95,31 +262,40 @@
 
     <!-- ========== 随机运动结果 ========== -->
     <template v-if="mode === 'exercise'">
-      <template v-if="exerciseResult">
+      <template v-if="exerciseResult && exerciseResult.list && exerciseResult.list.length">
         <view class="result-divider">
           <view class="line"></view>
-          <text class="txt">随机运动推荐</text>
+          <text class="txt">你的运动计划</text>
           <view class="line"></view>
         </view>
 
-        <ExerciseCard
-          :exercise="exerciseResult"
-          :minutes="exerciseResult.suggestMinutes"
-          :burn="exerciseResult.suggestBurn"
-        />
-
-        <view class="ex-calc ld-card">
-          <text class="ec-t">消耗计算过程</text>
-          <text class="ec-l">每分钟消耗 = {{ exerciseResult.met }} MET × 3.5 × {{ exerciseResult.weight }}kg ÷ 200 = {{ exerciseResult.kcalPerMin.toFixed(1) }} kcal/分钟</text>
-          <text class="ec-l">建议 {{ exerciseResult.suggestMinutes }} 分钟 → 约消耗 {{ Math.round(exerciseResult.suggestBurn) }} kcal</text>
+        <!-- 绿色渐变汇总卡（与随机菜单同款）：合计消耗 -->
+        <view class="summary">
+          <text class="sum-name">{{ exerciseResult.list.map(e => e.name).join(' + ') }}</text>
+          <view class="top">
+            <view class="t-l">
+              <text class="big">{{ Math.round(exerciseResult.totalBurn) }}大卡</text>
+              <text class="s">合计消耗</text>
+            </view>
+            <view class="price">合计时长<b>{{ exerciseResult.totalMinutes }} 分钟</b></view>
+          </view>
+          <view class="macro">
+            <view><text class="s">运动项目</text><text class="b">{{ exerciseResult.list.length }} 项</text></view>
+            <view><text class="s">参考体重</text><text class="b">{{ exerciseResult.weight }}kg</text></view>
+            <view><text class="s">平均每分钟</text><text class="b">{{ (exerciseResult.totalBurn / exerciseResult.totalMinutes).toFixed(1) }}kcal</text></view>
+          </view>
         </view>
+
+        <view class="list-label">计划安排（{{ exerciseResult.list.length }} 项 · 共 {{ exerciseResult.totalMinutes }} 分钟）</view>
+        <ExerciseCard
+          v-for="ex in exerciseResult.list"
+          :key="ex._id"
+          :exercise="ex"
+          :minutes="ex.suggestMinutes"
+          :burn="ex.suggestBurn"
+        />
       </template>
 
-      <view v-else class="empty">
-        <view class="ico">🏃</view>
-        <text class="b">还没有推荐</text>
-        <text class="s">点击「随机运动」，按体重随机推荐一项运动</text>
-      </view>
     </template>
 
     <!-- ========== 菜单生成结果（随机菜单模式） ========== -->
@@ -156,13 +332,32 @@
         :ingredient-summary="r.ingredientSummary"
         show-price
       />
+
+      <!-- 饮品搭配（酒 / 饮料 各自随机 1 个，与菜品分开显示） -->
+      <template v-if="result.alcohol || result.drink">
+        <view class="list-label">饮品</view>
+        <RecipeCard
+          v-if="result.alcohol"
+          :key="result.alcohol._id"
+          :recipe="result.alcohol"
+          :ingredient-summary="result.alcohol.ingredientSummary"
+          show-price
+        />
+        <RecipeCard
+          v-if="result.drink"
+          :key="result.drink._id"
+          :recipe="result.drink"
+          :ingredient-summary="result.drink.ingredientSummary"
+          show-price
+        />
+      </template>
     </template>
 
-    <!-- ========== 随机食材结果 ========== -->
+    <!-- ========== 随机原料结果 ========== -->
     <template v-else-if="mode === 'fullRandom' && dishResult">
       <view class="result-divider">
         <view class="line"></view>
-        <text class="txt">本次随机食材</text>
+        <text class="txt">{{ mixMode === 'cocktail' ? '本次调酒' : '本次随机原料' }}</text>
         <view class="line"></view>
       </view>
 
@@ -189,46 +384,11 @@
           <image v-if="ing.imageUrl" class="di-img" :src="ing.imageUrl" mode="aspectFill" />
           <text v-else class="di-emoji">{{ foodEmoji(ing.name) }}</text>
           <text class="di-n">{{ ing.name }}</text>
-          <text class="di-w">{{ ing.weight }}g · {{ Math.round(ing.calories) }}kcal</text>
+          <text class="di-w">{{ ing.weight }}{{ weightUnit(ing) }} · {{ Math.round(ing.calories) }}kcal</text>
           <text class="di-arrow">›</text>
         </view>
       </view>
     </template>
-
-    <!-- ========== 未生成空状态 ========== -->
-    <view v-else class="empty">
-      <view class="ico">🔥</view>
-      <text class="b">还没有菜单</text>
-      <text class="s">{{ emptyText }}</text>
-    </view>
-
-    <!-- ========== 忌口筛选弹窗 ========== -->
-    <wd-popup v-model="showFilter" position="center" custom-style="width: 600rpx; border-radius: 32rpx; background: var(--ld-card); padding: 0; overflow: hidden;">
-      <view class="modal">
-        <view class="m-head">
-          <text class="t">忌口食材筛选</text>
-          <text class="s">勾选后，生成菜单将排除包含所选食材的菜品</text>
-        </view>
-        <scroll-view scroll-y class="m-body">
-          <view
-            v-for="ing in filterOptions"
-            :key="ing._id"
-            class="checkbox"
-            :class="{ on: tempExcludeIds.includes(ing._id) }"
-            @click="toggleExclude(ing._id)"
-          >
-            <view class="ct">
-              <text class="main">{{ ing.label || ('不吃' + ing.name) }}</text>
-            </view>
-          </view>
-          <view v-if="!filterOptions.length" class="m-empty">食材加载中或暂无食材数据</view>
-        </scroll-view>
-        <view class="m-foot">
-          <wd-button plain @click="resetFilter">重置</wd-button>
-          <wd-button type="primary" @click="confirmFilter">确认</wd-button>
-        </view>
-      </view>
-    </wd-popup>
 
     <Disclaimer />
     <view style="height: 160rpx"></view>
@@ -239,10 +399,10 @@
 <script setup>
 // 文件路径：src/pages/random/index.vue (script)
 import { ref, computed } from 'vue'
-import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onShow, onUnload, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
 import { foodEmoji } from '@/utils/foodEmoji'
+import { weightUnit } from '@/utils/format'
 import TabBar from '@/components/TabBar.vue'
 import Disclaimer from '@/components/Disclaimer.vue'
 import RecipeCard from '@/components/RecipeCard.vue'
@@ -250,12 +410,79 @@ import ExerciseCard from '@/components/ExerciseCard.vue'
 
 // ---- 页面状态 ----
 const mode = ref('heatLimit')
-const calRange = ref([600, 900])
+// 热量区间：300~3000，默认全区间（相当于不限定热量）
+const CAL_MIN = 300
+const CAL_MAX = 3000
+const calRange = ref([CAL_MIN, CAL_MAX])
+// 目标热量区间折叠开关：默认收起，只显示小标题行 + 右侧当前值，点击展开滑块
+const calOpen = ref(false)
+// 是否实际限定了热量（区间被收窄才算限定）
+const calLimited = computed(() => calRange.value[0] > CAL_MIN || calRange.value[1] < CAL_MAX)
+// 随机运动：生成方式 / 时长 / 热量区间 / 强度
+const exPlanMode = ref('duration')            // duration=按时长 / calorie=按热量
+const exDuration = ref(30)                    // 目标总时长（分钟）
+const exBurnRange = ref([150, 300])           // 目标消耗区间（kcal）
+const exIntensity = ref('any')                // any/low/mid/high
+const durationOptions = [10, 15, 30, 60]
+const intensityOptions = [
+  { key: 'any', label: '不限' },
+  { key: 'low', label: '低强度' },
+  { key: 'mid', label: '中强度' },
+  { key: 'high', label: '高强度' }
+]
+// 随机餐饮：是否搭配饮品（默认勾选，云端额外搭配 1 个酒类菜谱）
+// 饮料搭配：酒 / 饮料 两个选项可多选（默认只搭配饮料，两个都选则各随机 1 个）
+const includeAlcohol = ref(false)
+const includeDrink = ref(true)
+const drinkOpen = ref(false)
+const drinkLabel = computed(() => {
+  if (includeAlcohol.value && includeDrink.value) return '酒 + 饮料'
+  if (includeAlcohol.value) return '酒'
+  if (includeDrink.value) return '饮料'
+  return '不搭配'
+})
+// 忌口折叠：默认没有忌口
+const excludeOpen = ref(false)
+// 随机原料：菜品类型 / 基酒 折叠行（默认收起，右侧显示当前选中）
+const dishTypeOpen = ref(false)
+const baseLiquorOpen = ref(false)
+const dishTypeLabel = computed(() => dishTypes.find(t => t.key === dishType.value)?.label || '全部')
+const baseLiquorLabel = computed(() => baseLiquors.find(b => b.key === baseLiquor.value)?.label || '全部')
+// 随机运动：运动时长 / 目标热量区间 / 训练强度 折叠行（默认收起）
+const exDurationOpen = ref(false)
+const exBurnOpen = ref(false)
+const exIntensityOpen = ref(false)
+const exIntensityLabel = computed(() => intensityOptions.find(it => it.key === exIntensity.value)?.label || '不限')
 const loading = ref(false)
+// 防卡死三件套：
+// 1) loading 由 beginRequest/endRequest 统一管理，异常/超时必复位
+// 2) slowHint：请求超过 8s 时按钮文案改为「仍在计算」，避免用户误以为卡死
+// 3) reqSeq：请求序号。旧请求晚返回时若已被新请求取代，直接丢弃，防止状态串台
+const SLOW_HINT_MS = 8000
+const slowHint = ref(false)
+let slowTimer = null
+let reqSeq = 0
+
+function beginRequest() {
+  reqSeq += 1
+  loading.value = true
+  slowHint.value = false
+  if (slowTimer) clearTimeout(slowTimer)
+  slowTimer = setTimeout(() => { slowHint.value = true }, SLOW_HINT_MS)
+  return reqSeq
+}
+
+function endRequest(seq) {
+  if (slowTimer) { clearTimeout(slowTimer); slowTimer = null }
+  slowHint.value = false
+  // 只有「当前」请求才能解锁按钮，旧请求不得复位
+  if (seq === reqSeq) loading.value = false
+}
+
 const result = ref(null)
 const dishResult = ref(null)
 const exerciseResult = ref(null)
-// 随机食材：菜品类型筛选（'' = 全部）
+// 拼好菜：菜品类型筛选（'' = 全部）
 const dishType = ref('')
 const dishTypes = [
   { key: '', label: '全部' },
@@ -264,34 +491,62 @@ const dishTypes = [
   { key: 'sandwich', label: '三明治' },
   { key: 'stirfry', label: '炒菜' }
 ]
+// 调美酒：内层模式（food=拼好菜 / cocktail=调美酒）与基酒选择（'' = 全部，key 需与云端 ingredient.name 精确一致）
+const mixMode = ref('food')
+const baseLiquor = ref('')
+const baseLiquors = [
+  { key: '', label: '全部' },
+  { key: '伏特加', label: '伏特加' },
+  { key: '金酒', label: '金酒' },
+  { key: '朗姆酒', label: '朗姆' },
+  { key: '椰子朗姆酒', label: '椰子朗姆' },
+  { key: '龙舌兰', label: '龙舌兰' },
+  { key: '威士忌', label: '威士忌' },
+  { key: '白兰地', label: '白兰地' },
+  { key: '白酒', label: '白酒' },
+  { key: '清酒', label: '清酒' },
+  { key: '梅酒', label: '梅酒' },
+  { key: '二锅头', label: '二锅头' },
+  { key: '咖啡利口酒', label: '咖啡利口' },
+  { key: '奶油利口酒', label: '奶油利口' },
+  { key: '杏仁利口酒', label: '杏仁利口' },
+  { key: '蜜桃利口酒', label: '蜜桃利口' },
+  { key: '蜜瓜利口酒', label: '蜜瓜利口' },
+  { key: '干味美思', label: '干味美思' },
+  { key: '甜味美思', label: '甜味美思' },
+  { key: '金巴利', label: '金巴利' }
+]
+// 切换拼好菜/调美酒时清空上一次结果
+function setMixMode(m) {
+  if (mixMode.value === m) return
+  mixMode.value = m
+  dishResult.value = null
+}
 
 // 主按钮文案随模式变化
 const mainBtnText = computed(() => {
-  if (mode.value === 'exercise') return loading.value ? '随机中...' : '随机运动'
-  if (mode.value === 'fullRandom') return loading.value ? '组合中...' : '随机食材'
+  if (loading.value && slowHint.value) return '仍在计算，请稍候...'
+  if (mode.value === 'exercise') return loading.value ? '生成中...' : '生成运动计划'
+  if (mode.value === 'fullRandom') {
+    if (loading.value) return mixMode.value === 'cocktail' ? '调酒中...' : '组合中...'
+    return mixMode.value === 'cocktail' ? '随机调酒' : '随机原料'
+  }
   return loading.value ? '生成中...' : '随机菜单'
 })
 
-// 空状态提示文案
-const emptyText = computed(() => {
-  if (mode.value === 'heatLimit') return '拖动滑块设置热量区间，点击「随机菜单」为你随机搭配 2~4 道菜品'
-  if (mode.value === 'fullRandom') return '点击「随机食材」，随机抽取 2~4 种食材，为它们组合出一道菜'
-  return '点击「随机运动」，按体重随机推荐一项运动'
-})
-
 // ---- 忌口筛选状态（仅本次页面会话内保留）----
-// 先放默认 mock 数据，保证弹窗不会空；云端 ingredient 数据加载成功后覆盖
+// 先放默认 mock 数据，保证 chips 不会空；云端 ingredient 数据加载成功后覆盖
 const filterOptions = ref([
-  { _id: 'mock-cilantro', name: '香菜', label: '不吃香菜' },
-  { _id: 'mock-pork', name: '猪肉', label: '不吃猪肉' },
-  { _id: 'mock-carrot', name: '胡萝卜', label: '不吃胡萝卜' },
-  { _id: 'mock-onion', name: '洋葱', label: '不吃洋葱' }
+  { _id: 'mock-cilantro', name: '香菜' },
+  { _id: 'mock-pork', name: '猪肉' },
+  { _id: 'mock-carrot', name: '胡萝卜' },
+  { _id: 'mock-onion', name: '洋葱' }
 ])
 // 忌口筛选暂时固定只展示这 4 种食材（顺序即展示顺序）
 const FILTER_NAMES = ['香菜', '猪肉', '胡萝卜', '洋葱']
 const excludeIds = ref([])
-const tempExcludeIds = ref([])
-const showFilter = ref(false)
+// 忌口折叠行右侧的状态文案
+const excludeLabel = computed(() => (excludeIds.value.length ? excludeIds.value.length + ' 项忌口' : '没有忌口'))
 
 // 加载筛选项：Promise.race 3s 超时，避免云函数未部署时卡住页面
 async function loadFilterOptions() {
@@ -305,7 +560,7 @@ async function loadFilterOptions() {
       const picked = []
       for (const name of FILTER_NAMES) {
         const hit = ret.data.find(ing => ing.name === name)
-        if (hit) picked.push({ _id: hit._id, name, label: '不吃' + name })
+        if (hit) picked.push({ _id: hit._id, name })
       }
       if (picked.length) filterOptions.value = picked
     }
@@ -315,32 +570,25 @@ async function loadFilterOptions() {
   }
 }
 
+// ---- 页面生命周期 ----
 onLoad(() => {
-  // 页面首次加载时异步获取筛选项，不阻塞渲染
   loadFilterOptions()
 })
-// 页面卸载重置筛选条件（PRD 交互规则）
+// 页面每次可见都强制 reset loading，防止云函数超时 / 页面切换后 loading 卡死导致按钮永远禁用
+onShow(() => {
+  loading.value = false
+  slowHint.value = false
+  if (slowTimer) { clearTimeout(slowTimer); slowTimer = null }
+})
 onUnload(() => {
   excludeIds.value = []
-  tempExcludeIds.value = []
 })
 
-// ---- 筛选弹窗交互 ----
-function openFilter() {
-  tempExcludeIds.value = excludeIds.value.slice()
-  showFilter.value = true
-}
-function toggleExclude(id) {
-  const idx = tempExcludeIds.value.indexOf(id)
-  if (idx >= 0) tempExcludeIds.value.splice(idx, 1)
-  else tempExcludeIds.value.push(id)
-}
-function resetFilter() {
-  tempExcludeIds.value = []
-}
-function confirmFilter() {
-  excludeIds.value = tempExcludeIds.value.slice()
-  showFilter.value = false
+// ---- 忌口 chips 直接点击切换 ----
+function toggleExcludeChip(id) {
+  const idx = excludeIds.value.indexOf(id)
+  if (idx >= 0) excludeIds.value.splice(idx, 1)
+  else excludeIds.value.push(id)
 }
 
 // ---- 主按钮：按当前模式分发 ----
@@ -349,14 +597,18 @@ function onMainAction() {
   return generate()
 }
 
-// ---- 生成（随机菜单 / 随机食材） ----
+// ---- 生成（随机餐饮 / 随机原料） ----
 async function generate() {
   if (loading.value) return
-  loading.value = true
+  const seq = beginRequest()
   try {
     if (mode.value === 'fullRandom') {
-      // 随机食材：云端随机抽取食材并组合菜名
-      const res = await callFunction('recipeService', { action: 'randomDish', dishType: dishType.value || undefined })
+      // 调美酒：按基酒随机搭配辅料调一杯；拼好菜：云端随机抽取食材并组合菜名
+      const params = mixMode.value === 'cocktail'
+        ? { action: 'randomCocktail', baseLiquor: baseLiquor.value || undefined }
+        : { action: 'randomDish', dishType: dishType.value || undefined }
+      const res = await callFunction('recipeService', params)
+      if (seq !== reqSeq) return // 已被更新的请求取代，丢弃本次结果
       const ret = res.result || {}
       if (ret.code === 'OK') {
         dishResult.value = ret.data
@@ -367,9 +619,18 @@ async function generate() {
       }
       return
     }
-    // 随机菜单：按热量区间搭配菜谱
-    const params = { mode: 'heatLimit', minCal: calRange.value[0], maxCal: calRange.value[1], excludeIngredientIdList: excludeIds.value }
+    // 随机菜单：按热量区间搭配菜谱；区间保持 300~3000 时不限热量；酒 / 饮料 可各随机搭配 1 个
+    const params = {
+      mode: 'heatLimit',
+      calLimit: calLimited.value,
+      minCal: calRange.value[0],
+      maxCal: calRange.value[1],
+      excludeIngredientIdList: excludeIds.value,
+      includeAlcohol: includeAlcohol.value,
+      includeDrink: includeDrink.value
+    }
     const res = await callFunction('generateMenu', params)
+    if (seq !== reqSeq) return // 已被更新的请求取代，丢弃本次结果
     const ret = res.result || {}
     if (ret.code === 'OK') {
       result.value = ret.data
@@ -388,9 +649,12 @@ async function generate() {
     }
   } catch (e) {
     console.error('[generate] catch 错误:', e)
-    uni.showToast({ title: (e && e.errMsg) || '网络异常，请稍后再试', icon: 'none' })
+    const msg = (e && e.errMsg === 'timeout') ? '请求超时，请检查网络后重试'
+             : (e && e.errMsg) || '网络异常，请稍后再试'
+    if (seq !== reqSeq) return // 旧请求的报错不打扰当前请求
+    uni.showToast({ title: msg, icon: 'none' })
   } finally {
-    loading.value = false
+    endRequest(seq)
   }
 }
 
@@ -400,12 +664,20 @@ function goIngDetail(ingredientId) {
   uni.navigateTo({ url: `/pages/ingredient/detail?id=${ingredientId}` })
 }
 
-// ---- 随机运动：云端按体重随机返回一项运动 ----
+// ---- 随机运动：按时长 / 按热量生成运动计划 ----
 async function randomExercise() {
   if (loading.value) return
-  loading.value = true
+  const seq = beginRequest()
   try {
-    const res = await callFunction('exerciseService', { action: 'random' })
+    const params = { action: 'random', planMode: exPlanMode.value, intensity: exIntensity.value }
+    if (exPlanMode.value === 'duration') {
+      params.targetMinutes = exDuration.value
+    } else {
+      params.minBurn = exBurnRange.value[0]
+      params.maxBurn = exBurnRange.value[1]
+    }
+    const res = await callFunction('exerciseService', params)
+    if (seq !== reqSeq) return // 已被更新的请求取代，丢弃本次结果
     const ret = res.result || {}
     if (ret.code === 'OK') {
       exerciseResult.value = ret.data
@@ -415,11 +687,16 @@ async function randomExercise() {
     }
   } catch (e) {
     console.error('[randomExercise] 错误:', e)
-    uni.showToast({ title: '网络异常，请稍后再试', icon: 'none' })
+    const msg = (e && e.errMsg === 'timeout') ? '请求超时，请检查网络后重试' : '网络异常，请稍后再试'
+    if (seq !== reqSeq) return // 旧请求的报错不打扰当前请求
+    uni.showToast({ title: msg, icon: 'none' })
   } finally {
-    loading.value = false
+    endRequest(seq)
   }
 }
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>
@@ -458,57 +735,265 @@ async function randomExercise() {
   }
 }
 
-/* 模式面板：卡片 + 次要元素总高度固定，保证主按钮位置一致 */
+/* 模式面板：不再锁高度 */
 .panel {
-  min-height: 528rpx;
+  min-height: 0;
 }
 
-/* === 通用卡 === */
-.label {
+/* === 计划卡（目标热量 / 随机食材 / 随机运动 通用骨架，内容常驻不折叠）=== */
+.plan-card {
+  box-sizing: border-box;
+  background: var(--ld-card);
+  border-radius: 32rpx;
+  border: 1rpx solid var(--ld-line);
+  box-shadow: 0 12rpx 36rpx rgba(60, 80, 50, 0.07);
+  margin-bottom: 28rpx;
+  padding: 30rpx 30rpx 34rpx;
+
+  /* 卡头：图标徽章 + 标题组 + 状态胶囊 */
+  .pc-head {
+    display: flex;
+    align-items: center;
+    gap: 20rpx;
+    padding-bottom: 26rpx;
+    margin-bottom: 28rpx;
+    border-bottom: 1rpx solid var(--ld-line);
+
+    .pc-ico {
+      width: 84rpx;
+      height: 84rpx;
+      border-radius: 26rpx;
+      background: linear-gradient(145deg, var(--ld-primary-soft), color-mix(in srgb, var(--ld-primary) 24%, var(--ld-card)));
+      box-shadow: inset 0 0 0 1rpx color-mix(in srgb, var(--ld-primary) 18%, transparent);
+      display: grid;
+      place-items: center;
+      font-size: 44rpx;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .pc-titles {
+      flex: 1;
+      min-width: 0;
+
+      .pc-title {
+        display: block;
+        font-size: 29rpx;
+        font-weight: 800;
+        color: var(--ld-text);
+        letter-spacing: 0.2rpx;
+      }
+
+      .pc-sub {
+        display: block;
+        margin-top: 6rpx;
+        font-size: 21rpx;
+        color: var(--ld-text-3);
+        line-height: 1.5;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+
+    .pc-badge {
+      flex-shrink: 0;
+      max-width: 250rpx;
+      font-size: 21rpx;
+      font-weight: 700;
+      color: var(--ld-primary-dark);
+      background: var(--ld-primary-soft);
+      padding: 10rpx 22rpx;
+      border-radius: 999rpx;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+
+      &.off {
+        color: var(--ld-text-3);
+        background: color-mix(in srgb, var(--ld-text-3) 10%, transparent);
+        font-weight: 500;
+      }
+    }
+  }
+}
+
+/* 小节标题：绿色渐变短棒 + 文字 */
+.sec-label {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
   font-size: 23rpx;
   font-weight: 700;
   color: var(--ld-text-2);
-  letter-spacing: 0.4rpx;
-  margin-bottom: 20rpx;
+  margin-bottom: 18rpx;
+
+  &::before {
+    content: '';
+    width: 8rpx;
+    height: 22rpx;
+    border-radius: 4rpx;
+    background: linear-gradient(180deg, var(--ld-primary), var(--ld-primary-dark));
+  }
 }
 
-/* === 热量卡片 / 随机卡片：统一高度 === */
-.cal-card,
-.random-card {
-  box-sizing: border-box;
-  min-height: 388rpx;
+.ex-gap { margin-top: 30rpx; }
+
+/* 可折叠小节标题（目标热量区间）：右侧当前值胶囊 + 展开箭头 */
+.sec-toggle { cursor: pointer; }
+
+.st-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.sec-badge {
+  font-size: 21rpx;
+  font-weight: 700;
+  color: var(--ld-primary-dark);
+  background: var(--ld-primary-soft);
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  white-space: nowrap;
+
+  &.off {
+    color: var(--ld-text-3);
+    background: color-mix(in srgb, var(--ld-text-3) 10%, transparent);
+    font-weight: 500;
+  }
+}
+
+.st-arrow {
+  font-size: 22rpx;
+  color: var(--ld-text-3);
+  transition: transform 0.2s ease;
+
+  &.up { transform: rotate(180deg); }
+}
+
+/* 通用 chips 行（菜品类型 / 运动时长 / 训练强度） */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.chip {
+  padding: 13rpx 32rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: var(--ld-text-2);
+  background: color-mix(in srgb, var(--ld-text-3) 9%, transparent);
+  border: 2rpx solid transparent;
+  transition: all 0.2s;
+
+  &.on {
+    color: var(--ld-primary-dark);
+    background: var(--ld-primary-soft);
+    border-color: var(--ld-primary);
+    font-weight: 700;
+  }
+}
+
+/* 分段控件（按时长 / 按热量），与页面顶部 seg 同一设计语言 */
+.mode-seg {
+  display: flex;
+  background: color-mix(in srgb, var(--ld-text-3) 12%, transparent);
+  border-radius: 20rpx;
+  padding: 6rpx;
+  margin-bottom: 30rpx;
+
+  .mode-seg-item {
+    flex: 1;
+    text-align: center;
+    padding: 16rpx 0;
+    border-radius: 15rpx;
+    font-size: 24rpx;
+    font-weight: 600;
+    color: var(--ld-text-2);
+    transition: all 0.2s;
+
+    &.on {
+      background: var(--ld-card);
+      color: var(--ld-primary-dark);
+      font-weight: 700;
+      box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.08);
+    }
+  }
+}
+
+/* 滑块承载面板：浅色内嵌底，滑块与刻度归拢 */
+.slider-panel {
+  background: color-mix(in srgb, var(--ld-text-3) 7%, transparent);
+  border-radius: 22rpx;
+  padding: 18rpx 24rpx 14rpx;
+}
+
+.slider-wrap { transition: opacity 0.25s ease; }
+
+/* === 饮品勾选（卡内整行） === */
+.alcohol-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  padding: 0 28rpx;
+  height: 92rpx;
+  border-radius: 24rpx;
+  border: 2rpx solid var(--ld-line);
   background: var(--ld-card);
-  border-radius: var(--ld-radius-lg);
-  box-shadow: 0 8rpx 28rpx rgba(60, 80, 50, 0.06);
-  margin-bottom: 28rpx;
+  color: var(--ld-text-2);
+  font-size: 26rpx;
+  font-weight: 700;
+  transition: all 0.15s;
+
+  .ac-box {
+    width: 34rpx;
+    height: 34rpx;
+    border-radius: 9rpx;
+    border: 3rpx solid var(--ld-text-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 22rpx;
+    font-weight: 700;
+    transition: all 0.15s;
+  }
+
+  &.on {
+    border-color: var(--ld-primary);
+    background: var(--ld-primary-soft);
+    color: var(--ld-primary-dark);
+
+    .ac-box {
+      background: var(--ld-primary);
+      border-color: var(--ld-primary);
+      color: #fff;
+    }
+  }
 }
 
-.cal-card {
-  padding: 32rpx;
-}
+/* === 热量卡片 / 随机卡片：外观由 .plan-card 统一 === */
 
 .kcal-big {
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 16rpx;
-  margin-bottom: 8rpx;
+  margin: 18rpx 0 22rpx;
+  transition: opacity 0.2s ease;
 
   .num {
-    font-size: 60rpx;
+    font-size: 64rpx;
     font-weight: 800;
     color: var(--ld-primary-dark);
     letter-spacing: -1rpx;
   }
   .sep { color: var(--ld-text-3); }
   .unit { font-size: 24rpx; color: var(--ld-text-3); font-weight: 600; }
-}
-
-.kcal-sub {
-  text-align: center;
-  font-size: 23rpx;
-  color: var(--ld-text-3);
-  margin-bottom: 32rpx;
 }
 
 .slider-wrap {
@@ -542,42 +1027,17 @@ async function randomExercise() {
   padding: 4rpx 4rpx 0;
 }
 
+/* 按热量模式复用 .kcal-big：字号略收 */
+.ex-kcal {
+  justify-content: center;
+  margin: 6rpx 0 14rpx;
+
+  .num { font-size: 52rpx; }
+}
+
 /* 次要元素区：固定高度，三种模式总高一致 */
 .secondary {
   min-height: 140rpx;
-}
-
-/* === 筛选按钮 === */
-.filter-btn {
-  position: relative;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14rpx;
-  width: 100%;
-  height: 96rpx;
-  border-radius: 26rpx;
-  border: 3rpx dashed color-mix(in srgb, var(--ld-primary) 55%, transparent);
-  background: var(--ld-primary-soft);
-  color: var(--ld-primary-dark);
-  font-size: 26rpx;
-  font-weight: 700;
-
-  &.on { border-style: solid; }
-
-  .fi { font-size: 28rpx; }
-
-  .dot {
-    position: absolute;
-    top: -10rpx;
-    right: -10rpx;
-    width: 22rpx;
-    height: 22rpx;
-    background: var(--ld-danger);
-    border-radius: 50%;
-    border: 4rpx solid var(--ld-bg);
-  }
 }
 
 .filter-hint {
@@ -590,40 +1050,6 @@ async function randomExercise() {
   color: var(--ld-text-2);
 
   em { font-style: normal; color: var(--ld-danger); font-weight: 700; }
-
-  /* 无选中时仍占位，保证按钮不位移 */
-  &.hide { visibility: hidden; }
-}
-
-/* === 完全随机 / 随机运动 模式 === */
-.random-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32rpx;
-  text-align: center;
-
-  .dice {
-    width: 120rpx;
-    height: 120rpx;
-    margin: 0 auto 24rpx;
-    border-radius: 40rpx;
-    background: var(--ld-primary-soft);
-    display: grid;
-    place-items: center;
-    font-size: 60rpx;
-  }
-
-  .t { display: block; font-size: 30rpx; font-weight: 700; color: var(--ld-text); }
-  .s {
-    display: block;
-    margin-top: 16rpx;
-    font-size: 23rpx;
-    color: var(--ld-text-2);
-    line-height: 1.7;
-    white-space: pre-line;
-  }
 }
 
 .cause-note {
@@ -747,78 +1173,7 @@ async function randomExercise() {
   margin: 0 4rpx 20rpx;
 }
 
-/* === 空状态 === */
-.empty {
-  text-align: center;
-  padding: 72rpx 40rpx 24rpx;
-
-  .ico {
-    width: 120rpx;
-    height: 120rpx;
-    margin: 0 auto 24rpx;
-    border-radius: 64rpx;
-    background: var(--ld-primary-soft);
-    display: grid;
-    place-items: center;
-    font-size: 56rpx;
-    color: var(--ld-primary-dark);
-  }
-  .b { display: block; font-size: 28rpx; color: var(--ld-text-2); margin-bottom: 10rpx; }
-  .s { display: block; font-size: 23rpx; color: var(--ld-text-3); line-height: 1.6; }
-}
-
-/* === 筛选弹窗 === */
-.modal {
-  padding: 0;
-}
-.m-head {
-  padding: 36rpx 40rpx 12rpx;
-
-  .t { display: block; font-size: 31rpx; font-weight: 700; color: var(--ld-text); margin-bottom: 10rpx; }
-  .s { display: block; font-size: 23rpx; color: var(--ld-text-2); line-height: 1.6; }
-}
-.m-body {
-  padding: 24rpx 40rpx 8rpx;
-  max-height: 800rpx;
-}
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 22rpx;
-  padding: 28rpx 24rpx;
-  border-radius: 20rpx;
-  margin-bottom: 14rpx;
-  background: var(--ld-bg-2, #f2f2f2);
-  border: 2rpx solid transparent;
-  transition: all 0.2s;
-
-  &.on {
-    background: var(--ld-primary-soft);
-    border-color: var(--ld-primary);
-  }
-
-  &:last-child { margin-bottom: 0; }
-
-  .ct { flex: 1; min-width: 0; }
-  .main { display: block; font-size: 28rpx; color: var(--ld-text); font-weight: 600; }
-  .hint { display: block; font-size: 21rpx; color: var(--ld-text-3); margin-top: 4rpx; }
-
-  &.on .main { color: var(--ld-primary-dark); font-weight: 700; }
-}
-.m-empty {
-  text-align: center;
-  font-size: 23rpx;
-  color: var(--ld-text-3);
-  padding: 40rpx 0;
-}
-.m-foot {
-  display: flex;
-  gap: 22rpx;
-  padding: 32rpx 40rpx 36rpx;
-
-  :deep(.wd-button) { flex: 1; }
-}
-/* ===== 随机食材汇总卡（复用 .summary 绿色渐变卡） ===== */
+/* ===== 随机原料汇总卡（复用 .summary 绿色渐变卡） ===== */
 .summary.dish-summary .price-txt {
   font-size: 22rpx;
   opacity: 0.85;
@@ -859,30 +1214,5 @@ async function randomExercise() {
   color: #fff;
   margin-bottom: 16rpx;
   line-height: 1.3;
-}
-
-/* ===== 菜品类型筛选 chips ===== */
-.dish-types {
-  display: flex;
-  gap: 16rpx;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-top: 24rpx;
-}
-.dt-chip {
-  padding: 10rpx 28rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  background: var(--ld-bg-2, #f2f2f2);
-  color: var(--ld-text-2);
-  border: 1rpx solid var(--ld-line);
-  transition: all 0.2s;
-
-  &.on {
-    background: var(--ld-primary);
-    color: #fff;
-    font-weight: 600;
-    border-color: var(--ld-primary);
-  }
 }
 </style>

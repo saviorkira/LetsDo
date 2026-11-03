@@ -3,7 +3,7 @@
 // 入参 action：
 //   getAvatar  形象数据（性别 / BMI / 体格标签 / 胖瘦系数）+ 商店列表（含已购/已装备）+ 积分
 //   buyItem    购买装扮（扣积分，永久有效）   参数：itemId
-//   equipItem  装备 / 再点一次卸下装扮       参数：itemId
+//   equipItem  装备 / 再点一次卸下装扮       参数：itemId、space（家具/宠物专用：'yard' 放庭院，默认放家里，两个空间独立）
 // 说明：胖瘦仅由「我的」页填写的身体数据（BMI）决定
 const cloud = require('wx-server-sdk')
 
@@ -11,8 +11,12 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-// 可自由布置（拖动/缩放）的槽位：家具与宠物
-const ARRANGE_SLOTS = ['furniture', 'pet']
+// 可自由布置（拖动/缩放）的槽位：家具（家里）/ 庭院家具 / 宠物（家里）/ 庭院宠物
+// 家里与庭院是两个独立空间：家里的家具、宠物不进庭院，庭院的也不进家里
+const ARRANGE_SLOTS = ['furniture', 'yardFurniture', 'pet', 'yardPet']
+
+// 庭院向家具：老数据迁移时从 furniture 拆分到 yardFurniture（仅判断一次，之后由装备时所在房间决定归属）
+const YARD_ITEMS = ['fur_fountain', 'fur_tent', 'fur_umbrella', 'fur_bonfire', 'fur_tree', 'fur_sunflower', 'fur_mushroom', 'fur_lantern', 'fur_woodhorse', 'fur_kite']
 
 // 装扮商店清单（静态数据，价格单位：积分）
 // 槽位说明：top/hat/acc/pants/gloves 为身体部位（单件），pet/furniture/bg 可多件
@@ -54,6 +58,12 @@ const SHOP_ITEMS = [
   { id: 'pet_panda', slot: 'pet', name: '小熊猫', price: 35, tip: '国宝级的陪伴' },
   { id: 'pet_fox', slot: 'pet', name: '小狐狸', price: 30, tip: '机灵又狡黠' },
   { id: 'pet_penguin', slot: 'pet', name: '小企鹅', price: 28, tip: '摇摇摆摆真可爱' },
+  { id: 'pet_bird', slot: 'pet', name: '小麻雀', price: 16, tip: '叽叽喳喳停在肩头' },
+  { id: 'pet_turtle', slot: 'pet', name: '小乌龟', price: 20, tip: '慢慢爬，陪你很久' },
+  { id: 'pet_parrot', slot: 'pet', name: '小鹦鹉', price: 26, tip: '会学你说话哦' },
+  { id: 'pet_hedgehog', slot: 'pet', name: '小刺猬', price: 24, tip: '圆滚滚，扎呼呼' },
+  { id: 'pet_duck', slot: 'pet', name: '小鸭子', price: 18, tip: '嘎嘎嘎，排队散步' },
+  { id: 'pet_frog', slot: 'pet', name: '小青蛙', price: 15, tip: '雨后院子里的小歌手' },
   // 家具
   { id: 'fur_sofa', slot: 'furniture', name: '小沙发', price: 12, tip: '窝在沙发里真舒服' },
   { id: 'fur_bed', slot: 'furniture', name: '小木床', price: 16, tip: '做个好梦' },
@@ -72,6 +82,25 @@ const SHOP_ITEMS = [
   { id: 'fur_cloud', slot: 'furniture', name: '云朵灯', price: 24, tip: '一朵会发光的云' },
   { id: 'fur_windbell', slot: 'furniture', name: '小风铃', price: 12, tip: '风一吹就叮当作响' },
   { id: 'fur_tapestry', slot: 'furniture', name: '编织挂毯', price: 20, tip: '手作的温柔质感' },
+  // 庭院向家具（小屋/庭院都能摆放）
+  { id: 'fur_fountain', slot: 'furniture', name: '小喷泉', price: 22, tip: '院子里叮咚作响' },
+  { id: 'fur_tent', slot: 'furniture', name: '小帐篷', price: 16, tip: '院子里也能露营' },
+  { id: 'fur_umbrella', slot: 'furniture', name: '遮阳伞', price: 12, tip: '树荫之外的阴凉' },
+  { id: 'fur_bonfire', slot: 'furniture', name: '篝火堆', price: 18, tip: '夏夜围炉讲故事' },
+  { id: 'fur_tree', slot: 'furniture', name: '小树苗', price: 10, tip: '陪你一起长大' },
+  { id: 'fur_sunflower', slot: 'furniture', name: '向日葵', price: 8, tip: '一直朝着太阳笑' },
+  { id: 'fur_mushroom', slot: 'furniture', name: '蘑菇凳', price: 12, tip: '雨后冒出来的小凳子' },
+  { id: 'fur_lantern', slot: 'furniture', name: '小灯笼', price: 14, tip: '挂在院子里暖暖的' },
+  { id: 'fur_woodhorse', slot: 'furniture', name: '摇摇木马', price: 22, tip: '摇回童年时光' },
+  { id: 'fur_kite', slot: 'furniture', name: '风筝', price: 9, tip: '等风来的时候放飞' },
+  // 室内新家具
+  { id: 'fur_aquarium', slot: 'furniture', name: '金鱼缸', price: 18, tip: '看小鱼游来游去' },
+  { id: 'fur_piano', slot: 'furniture', name: '小钢琴', price: 30, tip: '弹奏生活的小乐章' },
+  { id: 'fur_guitar', slot: 'furniture', name: '木吉他', price: 24, tip: '民谣和晚风很配' },
+  { id: 'fur_easel', slot: 'furniture', name: '小画架', price: 15, tip: '把日子画成画' },
+  { id: 'fur_cactus', slot: 'furniture', name: '仙人掌', price: 8, tip: '好养活的桌面伙伴' },
+  { id: 'fur_candle', slot: 'furniture', name: '香薰蜡烛', price: 10, tip: '点亮温柔的夜晚' },
+  { id: 'fur_giftbox', slot: 'furniture', name: '礼物盒', price: 12, tip: '装着给自己的小惊喜' },
   // 背景
   { id: 'bg_forest', slot: 'bg', name: '森林小屋', price: 10, tip: '被大自然包围' },
   { id: 'bg_beach', slot: 'bg', name: '海边小屋', price: 12, tip: '听海浪的声音' },
@@ -79,7 +108,18 @@ const SHOP_ITEMS = [
   { id: 'bg_sunset', slot: 'bg', name: '黄昏小屋', price: 14, tip: '落日余晖最温柔' },
   { id: 'bg_sakura', slot: 'bg', name: '樱花小屋', price: 16, tip: '樱花飘落的季节' },
   { id: 'bg_rainy', slot: 'bg', name: '雨天小屋', price: 12, tip: '听雨声入眠' },
-  { id: 'bg_snow', slot: 'bg', name: '雪景小屋', price: 14, tip: '银装素裹的世界' }
+  { id: 'bg_snow', slot: 'bg', name: '雪景小屋', price: 14, tip: '银装素裹的世界' },
+  { id: 'bg_default', slot: 'bg', name: '温馨小屋', price: 50, tip: '默认的温暖小屋背景' },
+  // 房子外观（庭院右侧小房子皮肤）
+  { id: 'hs_default', slot: 'houseSkin', name: '温馨小屋', price: 0, tip: '默认的半坡小屋' },
+  { id: 'hs_stone', slot: 'houseSkin', name: '石头小屋', price: 20, tip: '坚固又有质感' },
+  { id: 'hs_log', slot: 'houseSkin', name: '原木小屋', price: 25, tip: '森林里的木屋' },
+  { id: 'hs_pumpkin', slot: 'houseSkin', name: '南瓜小屋', price: 30, tip: '万圣节限定款' },
+  { id: 'hs_ice', slot: 'houseSkin', name: '冰屋', price: 35, tip: '北极风格的雪屋' },
+  { id: 'hs_mushroom', slot: 'houseSkin', name: '蘑菇小屋', price: 28, tip: '森林里的小蘑菇房' },
+  { id: 'hs_candy', slot: 'houseSkin', name: '糖果小屋', price: 32, tip: '甜甜的粉色糖果屋' },
+  { id: 'hs_sakura', slot: 'houseSkin', name: '樱花小屋', price: 38, tip: '樱花树下的小筑' },
+  { id: 'hs_castle', slot: 'houseSkin', name: '城堡小屋', price: 45, tip: '迷你版的中世纪城堡' }
 ]
 
 // 东八区当日日期 YYYY-MM-DD
@@ -285,11 +325,14 @@ const DROP_ITEMS = [
 // 全部可装备物品（商店 + Boss 稀有 + 出门掉落）
 const ALL_ITEMS = SHOP_ITEMS.concat(RARE_ITEMS, DROP_ITEMS)
 
-// 判断某槽位是否装备了某件物品（兼容单件 string、多件 array，以及家具的 {id,...} 对象格式）
+// 判断某槽位是否装备了某件物品（兼容单件 string、多件 array，以及家具/宠物的 {id,...} 对象格式）
+// 家具与宠物各自存在于「家里」和「庭院」两个独立空间，任一空间装备都算已装备（任一点击卸下）
 function isEquippedSlot(equipped, slot, id) {
-  const v = equipped[slot]
-  if (Array.isArray(v)) return v.some(e => (e && typeof e === 'object' ? e.id : e) === id)
-  return v === id
+  const hit = v => Array.isArray(v) ? v.some(e => (e && typeof e === 'object' ? e.id : e) === id) : v === id
+  if (hit(equipped[slot])) return true
+  if (slot === 'furniture') return hit(equipped.yardFurniture)
+  if (slot === 'pet') return hit(equipped.yardPet)
+  return false
 }
 
 // 商店列表：标注已购 / 已装备；稀有与掉落物品并入（仅用于装备面板展示，商店会过滤）
@@ -309,6 +352,22 @@ async function handle(event) {
 
   // ---- 形象页初始化 ----
   if (action === 'getAvatar') {
+    // 老数据迁移：庭院向家具从 furniture 拆到 yardFurniture（家里与庭院独立，仅执行一次）
+    const equip = profile.avatarEquip || {}
+    if (!equip.yardFurniture && Array.isArray(equip.furniture) && equip.furniture.length) {
+      const home = []
+      const yard = []
+      for (const e of equip.furniture) {
+        const id = e && typeof e === 'object' ? e.id : e
+        ;(YARD_ITEMS.includes(id) ? yard : home).push(e)
+      }
+      if (yard.length) {
+        equip.furniture = home
+        equip.yardFurniture = yard
+        await db.collection('user_profile').doc(profile._id).update({ data: { avatarEquip: equip } })
+        profile.avatarEquip = equip
+      }
+    }
     const fig = calcFigure(profile)
     const attr = calcAttr(profile)
     return {
@@ -452,8 +511,8 @@ async function handle(event) {
     if (!owned.includes(item.id)) return { code: 'NOT_OWNED', message: '还未拥有这件装扮' }
     const equipped = Object.assign({}, profile.avatarEquip || {})
 
-    if (['top', 'hat', 'acc', 'pants', 'gloves'].includes(item.slot)) {
-      // 身体部位：单件，替换或卸下（兼容旧版数组格式数据）
+    if (['top', 'hat', 'acc', 'pants', 'gloves', 'bg', 'houseSkin'].includes(item.slot)) {
+      // 身体部位 / 背景 / 房子外观：单件，替换或卸下（兼容旧版数组格式数据）
       const cur = equipped[item.slot]
       const isOn = Array.isArray(cur) ? cur.includes(item.id) : cur === item.id
       if (isOn) {
@@ -461,8 +520,31 @@ async function handle(event) {
       } else {
         equipped[item.slot] = item.id
       }
+    } else if (item.slot === 'pet' || item.slot === 'furniture') {
+      // 家具与宠物：家里（furniture / pet）与庭院（yardFurniture / yardPet）是两个独立空间
+      // 已装备则从哪里卸下；未装备则放到当前所在房间（event.space = 'yard' 进庭院，默认进家里）
+      const homeKey = item.slot === 'pet' ? 'pet' : 'furniture'
+      const yardKey = item.slot === 'pet' ? 'yardPet' : 'yardFurniture'
+      const find = a => (Array.isArray(a) ? a : []).findIndex(e => (e && typeof e === 'object' ? e.id : e) === item.id)
+      const homeArr = Array.isArray(equipped[homeKey]) ? equipped[homeKey].slice() : []
+      const yardArr = Array.isArray(equipped[yardKey]) ? equipped[yardKey].slice() : []
+      const hi = find(homeArr)
+      const yi = find(yardArr)
+      if (hi >= 0) {
+        homeArr.splice(hi, 1)
+        equipped[homeKey] = homeArr
+      } else if (yi >= 0) {
+        yardArr.splice(yi, 1)
+        equipped[yardKey] = yardArr
+      } else if (event.space === 'yard') {
+        yardArr.push({ id: item.id })
+        equipped[yardKey] = yardArr
+      } else {
+        homeArr.push({ id: item.id })
+        equipped[homeKey] = homeArr
+      }
     } else {
-      // 宠物/家具/背景：多件数组（家具与宠物元素为 {id,x,y,scale} 布置对象，其余为 id 字符串）
+      // 其他未知 slot：按多件数组处理（保留向后兼容）
       const cur = equipped[item.slot]
       const arr = Array.isArray(cur) ? cur.slice() : (cur ? [cur] : [])
       const idx = arr.findIndex(e => (e && typeof e === 'object' ? e.id : e) === item.id)

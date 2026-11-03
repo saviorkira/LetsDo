@@ -1,5 +1,5 @@
 <!-- 文件路径：src/components/TabBar.vue -->
-<!-- 自定义底部 Tab 导航：运动库 / 菜品库 / 随机 / 形象 / 我的（随机居中，为默认首页） -->
+<!-- 自定义底部 Tab 导航：运动库 / 美食库 / 随机 / 形象 / 我的（随机居中，为默认首页） -->
 <template>
   <view class="tab-bar">
     <view
@@ -24,7 +24,7 @@ const props = defineProps({
 // 五个主页面（随机居中；图标为 Lucide 风格线性 SVG，见样式区）
 const tabs = [
   { path: 'pages/exercise/library', label: '运动库', icon: 'ic-activity' },
-  { path: 'pages/recipe/library', label: '菜品库', icon: 'ic-book' },
+  { path: 'pages/recipe/library', label: '美食库', icon: 'ic-book' },
   { path: 'pages/random/index', label: '随机', icon: 'ic-dice' },
   { path: 'pages/avatar/index', label: '形象', icon: 'ic-person' },
   { path: 'pages/mine/index', label: '我的', icon: 'ic-user' }

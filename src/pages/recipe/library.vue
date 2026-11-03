@@ -1,19 +1,19 @@
-<!-- 文件路径：src/pages/recipe/library.vue -->
-<!-- 菜品库 Tab：顶部菜品/食材切换 -->
+﻿<!-- 文件路径：src/pages/recipe/library.vue -->
+<!-- 美食库 Tab：顶部菜单/原料切换 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page">
     <!-- 顶部分段切换 -->
     <view class="seg">
       <view
         class="seg-item"
         :class="{ on: tab === 'recipe' }"
         @click="switchTab('recipe')"
-      >菜品</view>
+      >菜单</view>
       <view
         class="seg-item"
         :class="{ on: tab === 'ingredient' }"
         @click="switchTab('ingredient')"
-      >食材</view>
+      >原料</view>
     </view>
 
     <!-- ========== 菜品 Tab ========== -->
@@ -39,7 +39,7 @@
         <view v-if="includeIds.length" class="dot"></view>
       </view>
 
-      <view v-if="total" class="count">共 {{ total }} 道菜品 · 下拉加载更多</view>
+      <view v-if="total" class="count">共 {{ total }} 菜单 · 下拉加载更多</view>
 
       <RecipeCard
         v-for="r in list"
@@ -65,39 +65,39 @@
       </view>
     </template>
 
-    <!-- ========== 食材 Tab ========== -->
+    <!-- ========== 原料 Tab（食材 + 酒饮合并） ========== -->
     <template v-else>
-      <!-- 食材搜索框 -->
+      <!-- 原料搜索框 -->
       <view class="search">
         <text class="si">🔍</text>
         <input
           class="si-input"
           v-model="ingKeyword"
-          placeholder="搜索食材，如 鸡蛋"
+          placeholder="搜索原料，如 鸡蛋 / 威士忌"
           placeholder-class="si-ph"
           confirm-type="search"
-          @confirm="onIngSearch"
+          @confirm="onMaterialSearch"
         />
-        <text v-if="ingKeyword" class="clear" @click="ingKeyword = ''; loadIngredients()">✕</text>
+        <text v-if="ingKeyword" class="clear" @click="ingKeyword = ''; loadMaterials()">✕</text>
       </view>
 
-      <!-- 食材分类 chips -->
+      <!-- 原料分类 chips -->
       <scroll-view scroll-x class="cats" show-scrollbar="false">
         <view
           v-for="c in ingCategories"
           :key="c.key"
           class="cat"
           :class="{ on: ingCategory === c.key }"
-          @click="ingCategory = c.key; loadIngredients()"
+          @click="ingCategory = c.key; loadMaterials()"
         >{{ c.label }}</view>
       </scroll-view>
 
-      <view v-if="ingredients.length" class="count">共 {{ ingredients.length }} 种食材</view>
+      <view v-if="materials.length" class="count">共 {{ materials.length }} 种原料</view>
 
-      <!-- 食材卡片列表（单列横排，与菜品卡片一致） -->
-      <view v-if="!ingLoading && ingredients.length" class="ing-list">
+      <!-- 原料卡片列表（单列横排，与菜品卡片一致） -->
+      <view v-if="!materialLoading && materials.length" class="ing-list">
         <view
-          v-for="ing in ingredients"
+          v-for="ing in materials"
           :key="ing._id"
           class="ing-item"
           @click="goIngDetail(ing)"
@@ -119,14 +119,14 @@
         </view>
       </view>
 
-      <view v-if="!ingLoading && !ingredients.length" class="empty">
+      <view v-if="!materialLoading && !materials.length" class="empty">
         <view class="ico">🥬</view>
-        <text class="b">没有找到食材</text>
+        <text class="b">没有找到原料</text>
         <text class="s">换个关键词试试</text>
       </view>
-      <view v-if="ingLoading" class="loading-box">
+      <view v-if="materialLoading" class="loading-box">
         <wd-loading color="#6FBF73" />
-        <text class="s">食材加载中...</text>
+        <text class="s">原料加载中...</text>
       </view>
     </template>
 
@@ -167,11 +167,10 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { onShow, onReachBottom } from '@dcloudio/uni-app'
+import { ref, computed, watch } from 'vue'
+import { onShow, onReachBottom, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
 import { foodEmoji } from '@/utils/foodEmoji'
-import { isDark } from '@/utils/theme'
 import TabBar from '@/components/TabBar.vue'
 import Disclaimer from '@/components/Disclaimer.vue'
 import RecipeCard from '@/components/RecipeCard.vue'
@@ -252,7 +251,7 @@ async function loadFilterOptions() {
   } catch (e) {}
 }
 
-// ---- 食材 Tab 状态 ----
+// ---- 原料 Tab 状态（食材 + 酒饮合并展示）----
 const ingredients = ref([])
 const ingLoading = ref(false)
 const ingKeyword = ref('')
@@ -263,7 +262,8 @@ const ingCategories = [
   { key: 'seafood', label: '海鲜' },
   { key: 'veg', label: '蔬菜' },
   { key: 'staple', label: '主食' },
-  { key: 'condiment', label: '调料' }
+  { key: 'condiment', label: '调料' },
+  { key: 'alcohol', label: '酒饮' }
 ]
 
 async function loadIngredients() {
@@ -272,7 +272,7 @@ async function loadIngredients() {
     const res = await callFunction('recipeService', {
       action: 'listIngredients',
       keyword: ingKeyword.value,
-      category: ingCategory.value || undefined
+      category: ingCategory.value === 'alcohol' ? undefined : (ingCategory.value || undefined)
     })
     const ret = res.result || {}
     if (ret.code === 'OK') ingredients.value = ret.data || []
@@ -284,13 +284,50 @@ async function loadIngredients() {
     ingLoading.value = false
   }
 }
-function onIngSearch() { loadIngredients() }
+
+// ---- 酒饮列表（复用 listIngredients，category=alcohol）----
+const alcohols = ref([])
+const alcoholLoading = ref(false)
+
+async function loadAlcohols() {
+  alcoholLoading.value = true
+  try {
+    const res = await callFunction('recipeService', {
+      action: 'listIngredients',
+      keyword: ingKeyword.value,
+      category: 'alcohol'
+    })
+    const ret = res.result || {}
+    if (ret.code === 'OK') alcohols.value = ret.data || []
+    else uni.showToast({ title: ret.message || '加载失败', icon: 'none' })
+  } catch (e) {
+    console.error('酒饮加载失败', e)
+    uni.showToast({ title: '网络异常', icon: 'none' })
+  } finally {
+    alcoholLoading.value = false
+  }
+}
+
+// 原料合并视图：酒饮分类只看酒；全部 = 食材 + 酒饮；其余分类只看对应食材
+const materialLoading = computed(() => ingLoading.value || alcoholLoading.value)
+const materials = computed(() => {
+  if (ingCategory.value === 'alcohol') return alcohols.value
+  if (ingCategory.value) return ingredients.value
+  return ingredients.value.concat(alcohols.value)
+})
+
+// 统一加载入口：按当前分类并行拉取所需列表
+function loadMaterials() {
+  if (ingCategory.value !== 'alcohol') loadIngredients()
+  loadAlcohols()
+}
+function onMaterialSearch() { loadMaterials() }
 
 function switchTab(t) {
   if (tab.value === t) return
   tab.value = t
-  // 切到食材 Tab 时若列表为空则主动加载，避免出现「没有找到食材」假空态
-  if (t === 'ingredient' && !ingredients.value.length) loadIngredients()
+  // 切到原料 Tab 时若列表为空则主动加载，避免出现假空态
+  if (t === 'ingredient' && !ingredients.value.length && !alcohols.value.length) loadMaterials()
 }
 function goIngDetail(ing) {
   uni.navigateTo({ url: `/pages/ingredient/detail?id=${ing._id}` })
@@ -301,7 +338,7 @@ onShow(() => {
     loadFilterOptions()
     loadList()
   } else {
-    loadIngredients()
+    loadMaterials()
   }
 })
 
@@ -314,6 +351,9 @@ function toggleInclude(id) {
 }
 function resetFilter() { tempIncludeIds.value = [] }
 function confirmFilter() { includeIds.value = tempIncludeIds.value.slice(); showFilter.value = false; resetAndLoad() }
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>

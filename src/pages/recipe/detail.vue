@@ -1,11 +1,11 @@
-<!-- 文件路径：src/pages/recipe/detail.vue -->
+﻿<!-- 文件路径：src/pages/recipe/detail.vue -->
 <!-- 菜谱配方详情页：大图 / 食材配比 / 营养汇总 / 视频号教程 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
     <template v-if="detail">
-      <!-- 顶部大图区 -->
-      <view class="hero">
-        <image v-if="detail.imageUrl" class="hero-img" :src="detail.imageUrl" mode="aspectFill" />
+      <!-- 顶部大图区（下拉可放大至图片真实高度，参考微信朋友圈） -->
+      <view class="hero" :style="heroStyle">
+        <image v-if="detail.imageUrl" class="hero-img" :src="detail.imageUrl" mode="aspectFill" @load="onHeroImgLoad" />
         <view v-else class="hero-img ph">{{ dishIcon }}</view>
         <view class="grad"></view>
         <view class="ttl">
@@ -22,10 +22,10 @@
           <view v-else class="ing-thumb ph">{{ ingredientIcon(ing) }}</view>
           <view class="n">
             <text class="b">{{ ing.name }}</text>
-            <text class="s">{{ ing.caloriesPer100g }} kcal/100g · {{ ing.nutritionDesc }}</text>
+            <text class="s">{{ ing.caloriesPer100g }} {{ calorieUnit(ing) }} · {{ ing.nutritionDesc }}</text>
           </view>
           <view class="w">
-            <text class="b">{{ ing.weight }}g</text>
+            <text class="b">{{ ing.weight }}{{ weightUnit(ing) }}</text>
             <text class="s">{{ Math.round(ing.calories) }} kcal</text>
           </view>
           <text class="ing-arrow">›</text>
@@ -52,16 +52,16 @@
           <text class="toggle">{{ showCalc ? '收起 ▲' : '展开 ▼' }}</text>
         </view>
         <view v-if="showCalc" class="calc-body">
-          <text class="calc-note">所有数值都按「食材库每 100g 基准 ÷ 100 × 实际用量」逐项累加得出。</text>
+          <text class="calc-note">所有数值都按「食材库每 100g 基准 ÷ 100 × 实际用量」逐项累加得出。液体类原料（酒 / 饮料）单位自动换算为 ml。</text>
 
           <view v-for="row in calcRows" :key="row.name" class="calc-item">
             <view class="ci-head">
               <text class="ci-name">{{ row.name }}</text>
-              <text class="ci-w">{{ row.weight }}g</text>
+              <text class="ci-w">{{ row.weight }}{{ weightUnit(row) }}</text>
             </view>
             <view class="ci-line">
               <text class="ci-k">热量</text>
-              <text class="ci-v">{{ row.weight }} ÷ 100 × {{ row.calPer100g }}kcal = {{ row.calories.toFixed(1) }} kcal</text>
+              <text class="ci-v">{{ row.weight }} ÷ 100 × {{ row.calPer100g }} {{ calorieUnit(row) }} = {{ row.calories.toFixed(1) }} kcal</text>
             </view>
             <view class="ci-line">
               <text class="ci-k">价格</text>
@@ -98,15 +98,20 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
 import { foodEmoji } from '@/utils/foodEmoji'
+import { weightUnit, calorieUnit } from '@/utils/format'
+import { useHeroStretch } from '@/utils/heroStretch'
 import Disclaimer from '@/components/Disclaimer.vue'
 
 const detail = ref(null)
 const loading = ref(false)
 const showCalc = ref(false)
+
+// 朋友圈式下拉放大（无配图时禁用）
+const { heroStyle, onTouchStart, onTouchMove, onTouchEnd, onHeroImgLoad } =
+  useHeroStretch(() => !!(detail.value && detail.value.imageUrl))
 
 // 顶部大图占位图标：按菜名推断贴切 emoji
 const dishIcon = computed(() => foodEmoji(detail.value && detail.value.name))
@@ -132,7 +137,9 @@ const calcRows = computed(() => {
     calPer100g: Number(ing.caloriesPer100g) || 0,
     calories: Number(ing.calories) || 0,
     pricePer100g: Number(ing.pricePer100g) || 0,
-    price: Number(ing.price) || 0
+    price: Number(ing.price) || 0,
+    isAlcohol: !!ing.isAlcohol,
+    isDrink: !!ing.isDrink
   }))
 })
 
@@ -156,6 +163,9 @@ onLoad(async (query) => {
     loading.value = false
   }
 })
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>

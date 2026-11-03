@@ -1,7 +1,7 @@
 <!-- 文件路径：src/pages/mine/index.vue -->
 <!-- 我的 Tab：身体数据 / 今日热量 / 差额与运动推荐 / 个人信息 / 每日打卡 / 打卡日历 / 积分 / 设置 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page">
     <!-- ========== 个人信息卡：头像昵称 + 累计热量 + 身体数据入口 ========== -->
     <view class="card ld-card">
       <view class="profile">
@@ -178,13 +178,6 @@
         </view>
         <wd-switch :model-value="!profile.rankHidden" @change="onRankSwitch" />
       </view>
-      <view class="set-row">
-        <view class="st">
-          <text class="b">暗色模式</text>
-          <text class="s">跟随微信主题自动切换深色外观</text>
-        </view>
-        <wd-switch :model-value="followSystem" @change="onDarkSwitch" />
-      </view>
     </view>
 
     <!-- 身体数据弹窗（居中） -->
@@ -231,9 +224,8 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction } from '@/utils/cloud'
-import { isDark, isFollowSystem, setFollowSystem } from '@/utils/theme'
 import TabBar from '@/components/TabBar.vue'
 import Disclaimer from '@/components/Disclaimer.vue'
 import ExerciseCard from '@/components/ExerciseCard.vue'
@@ -246,7 +238,6 @@ const monthDates = ref([]) // 当月已打卡日期 YYYY-MM-DD
 const allDates = ref([]) // 全部已打卡日期
 const streak = ref(0)
 const totalDays = ref(0)
-const followSystem = ref(isFollowSystem())
 const monthOffset = ref(0) // 月份偏移：0=本月，-1=上月，+1=下月
 
 // ---- 身体数据 / 热量管理 ----
@@ -567,15 +558,12 @@ async function onRankSwitch({ value }) {
   }
 }
 
-// ---- 暗色模式开关（跟随系统；change 事件参数为 { value }） ----
-function onDarkSwitch({ value }) {
-  followSystem.value = value
-  setFollowSystem(value)
-}
-
 function goRank() {
   uni.navigateTo({ url: '/pages/rank/index' })
 }
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>

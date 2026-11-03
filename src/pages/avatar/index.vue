@@ -1,7 +1,7 @@
-<!-- 文件路径：src/pages/avatar/index.vue -->
+﻿<!-- 文件路径：src/pages/avatar/index.vue -->
 <!-- 形象 Tab：健康虚拟形象 + 点击/按住舞台移动 + 装扮/宠物/家具/背景商店 + 装备管理 -->
 <template>
-  <view class="page" :class="{ 'theme-dark wd-dark': isDark }">
+  <view class="page">
     <!-- 顶部信息卡 -->
     <view class="card ld-card info-card">
       <template v-if="avatar.hasProfile">
@@ -32,38 +32,34 @@
       <view class="hut-head">
         <view class="pt-pill">⭐ {{ avatar.totalPoint }} 积分</view>
         <view class="hut-actions">
-          <view class="hut-btn attr" @click="showAttr = true"><text class="hut-ico">📊</text>状态</view>
-          <view class="hut-btn place" :class="{ on: furnishing }" @click="toggleFurnish"><text class="hut-ico">🛠</text>布置</view>
-          <view class="hut-btn shop" @click="openShop"><text class="hut-ico">🛍</text>饰品</view>
+          <view class="hut-btn attr" @click="showAttr = true">状态</view>
+          <view class="hut-btn place" :class="{ on: furnishing }" @click="toggleFurnish">布置</view>
+          <view class="hut-btn shop" @click="openShop">饰品</view>
         </view>
       </view>
 
       <!-- 舞台：点击/按住移动人物（布置模式下家具可拖拽） -->
-      <view class="stage" :class="[stageBgClass, room === 'bmi' ? 'room-bmi' : '']" @touchstart="onStageTouchStart" @touchmove="onStageTouchMove" @touchend="onStageTouchEnd" @touchcancel="onStageTouchEnd">
-        <!-- 家具层（仅在 home，可多件同时摆放；布置模式可拖动/缩放） -->
-        <template v-if="room === 'home'">
+      <view class="stage" :class="[stageBgClass, room === 'bmi' ? 'room-bmi' : '', room === 'yard' ? 'room-yard' : '']" @touchstart="onStageTouchStart" @touchmove="onStageTouchMove" @touchend="onStageTouchEnd" @touchcancel="onStageTouchEnd">
+        <!-- AI 场景背景（home 装备了渐变背景时让位给装备） -->
+        <image v-if="stageBgImg" class="stage-bg-img" :src="stageBgImg" mode="aspectFill" />
+        <!-- 房间胶囊：场馆名+倒计时 / 世界地名 -->
+        <view v-if="roomPill" class="room-pill">
+          <text>{{ roomPill }}</text>
+          <text v-if="outing" class="rp-time">{{ outingRemain }}</text>
+        </view>
+        <!-- 家具层（小屋与庭院各自独立摆放，互不影响；布置模式可拖动/缩放） -->
+        <template v-if="room === 'home' || room === 'yard'">
           <view
-            v-for="f in equipped.furniture"
+            v-for="f in (room === 'yard' ? equipped.yardFurniture : equipped.furniture)"
             :key="f.id"
             class="furniture"
             :class="[f.id, { placing: furnishing, selected: selectedFurn === f.id }]"
             :style="furnStyle(f)"
-            @touchstart.stop="onItemTouch(f, 'furniture', $event)"
-            @touchmove.stop.prevent="onItemTouchMove(f, 'furniture', $event)"
+            @touchstart.stop="onItemTouch(f, furnSlotKey, $event)"
+            @touchmove.stop.prevent="onItemTouchMove(f, furnSlotKey, $event)"
           >
             <text v-if="FUR_EMOJI[f.id]" class="fur-emoji">{{ FUR_EMOJI[f.id] }}</text>
           </view>
-          <!-- 左侧门：出门（走过去触发） -->
-          <view class="door door-left">
-            <view class="door-plank"><view class="door-knob"></view></view>
-            <text class="door-label">出门</text>
-          </view>
-          <!-- 右侧门：BMI 展示间 -->
-          <view class="door door-right">
-            <view class="door-plank"><view class="door-knob"></view></view>
-            <view class="door-label"><text>BMI</text><text>人物展示</text></view>
-          </view>
-
           <!-- 布置模式工具条 -->
           <view v-if="furnishing" class="furn-bar">
             <text class="fb-tip">{{ selectedFurn ? '拖动移动 · ± 调大小' : '点击家具/宠物选中后可调整' }}</text>
@@ -74,38 +70,74 @@
           </view>
         </template>
 
-        <!-- 宠物层（仅在 home，可同时带多只；布置模式可拖动/缩放） -->
+        <!-- 门：按房间渲染（走过去触发） -->
+        <view v-if="doorCfg.left" class="door door-left" :style="{ bottom: doorBottom }">
+          <view class="door-plank"><view class="door-knob"></view></view>
+          <view class="door-label"><text v-for="t in doorCfg.left" :key="t">{{ t }}</text></view>
+        </view>
+        <view v-if="doorCfg.right" class="door door-right" :style="{ bottom: doorBottom }">
+          <view class="door-plank"><view class="door-knob"></view></view>
+          <view class="door-label"><text v-for="t in doorCfg.right" :key="t">{{ t }}</text></view>
+        </view>
+
+        <!-- 庭院专属出口：左侧绿色箭头「出门」（复用 exitCfg.left）；右侧小房子，碰到房子即回室内 -->
+        <template v-if="room === 'yard'">
+          <view class="yard-house" :class="[houseSkinClass]" :style="{ bottom: doorBottom }" @touchstart.stop @click.stop="onExit('right')">
+            <view class="yh-roof"></view>
+            <view class="yh-wall">
+              <view class="yh-window"></view>
+              <view class="yh-door">
+                <view class="yh-knob"></view>
+              </view>
+            </view>
+          </view>
+        </template>
+
+        <!-- 绿色箭头出口：场馆与世界地点（回家），点击即触发；弹窗打开时隐藏（动画元素在小程序里会穿透弹窗） -->
         <view
-          v-for="p in (room === 'home' ? equipped.pet : [])"
+          v-if="exitCfg.left && !popupOpen"
+          class="exit exit-left"
+          :style="{ bottom: doorBottom }"
+          data-exit="1"
+          @click.stop="onExit('left')"
+        >
+          <text class="exit-txt">出门</text>
+          <view class="exit-arrow">←</view>
+        </view>
+        <view
+          v-if="exitCfg.right && !popupOpen"
+          class="exit exit-right"
+          :style="{ bottom: doorBottom }"
+          data-exit="1"
+          @click.stop="onExit('right')"
+        >
+          <text class="exit-txt">回家</text>
+          <view class="exit-arrow">→</view>
+        </view>
+
+        <!-- 宠物层（家里 pet 与庭院 yardPet 各自独立，可同时带多只；布置模式可拖动/缩放） -->
+        <view
+          v-for="p in petList"
           :key="p.id"
           class="pet"
           :class="[p.id, { placing: furnishing, selected: selectedFurn === p.id }]"
           :style="furnStyle(p)"
-          @touchstart.stop="onItemTouch(p, 'pet', $event)"
-          @touchmove.stop.prevent="onItemTouchMove(p, 'pet', $event)"
+          @touchstart.stop="onItemTouch(p, petSlotKey, $event)"
+          @touchmove.stop.prevent="onItemTouchMove(p, petSlotKey, $event)"
         >
           <text class="pet-emoji">{{ PET_EMOJI[p.id] || '🐾' }}</text>
         </view>
 
         <!-- BMI 展示间 -->
         <template v-if="room === 'bmi'">
-          <!-- 左侧门：返回小屋 -->
-          <view class="door door-left">
-            <view class="door-plank"><view class="door-knob"></view></view>
-            <text class="door-label">返回小屋</text>
-          </view>
           <text class="bmi-title">同一身高 · 不同 BMI 的你</text>
           <view
             v-for="m in bmiModels"
             :key="m.bmi"
             class="model-wrap"
-            :style="{ left: m.left + '%' }"
+            :style="{ left: m.left + '%', bottom: doorBottom }"
           >
-            <view
-              class="char model"
-              :class="avatar.gender === 'female' ? 'girl' : 'boy'"
-              :style="{ '--fat': m.fat, '--fat-head': m.fatHead }"
-            >
+            <view class="char model" :class="avatar.gender === 'female' ? 'girl' : 'boy'" :style="{ '--fat': m.fat, '--fat-head': m.fatHead }">
               <view class="char-inner">
                 <view class="shadow"></view>
                 <view class="leg l1"></view>
@@ -122,7 +154,7 @@
           </view>
         </template>
 
-        <!-- 人物 -->
+        <!-- 人物（CSS 纸娃娃：腿/身体/手臂/头部分层，装备叠加；侧面通过 .side 变体呈现） -->
         <view v-if="avatar.hasProfile" class="char" :class="charClass" :style="charStyle">
           <view class="char-inner">
             <view class="shadow"></view>
@@ -149,17 +181,6 @@
           </view>
         </view>
         <view v-else class="egg">🥚</view>
-
-        <!-- 出门倒计时：仅覆盖舞台区域，底部导航可正常点击，倒计时继续 -->
-        <view v-if="outing" class="outing-mask">
-          <view class="outing-card">
-            <text class="outing-icon">{{ outingPlace.icon }}</text>
-            <text class="outing-name">{{ outingPlace.name }}</text>
-            <text class="outing-timer">{{ outingRemain }}</text>
-            <text class="outing-tip">时间到自动返回并获得属性加成</text>
-            <view class="outing-quit" @click="quitOuting">提前回家（无奖励）</view>
-          </view>
-        </view>
       </view>
     </view>
 
@@ -217,6 +238,17 @@
         </view>
         <scroll-view scroll-y class="goods-wrap">
           <view class="out-list">
+            <!-- 世界地图入口（固定在菜单最上方） -->
+            <view class="out-item map-entry" @click="openMap">
+              <text class="out-icon">🗺️</text>
+              <view class="out-info">
+                <text class="out-name">世界地图</text>
+                <text class="out-desc">去世界各地逛逛，欣赏名胜古迹</text>
+              </view>
+              <view class="out-cost">
+                <text class="out-attr">免费参观</text>
+              </view>
+            </view>
             <view class="out-item" v-for="p in outPlaces" :key="p.id" @click="onGoOut(p)">
               <text class="out-icon">{{ p.icon }}</text>
               <view class="out-info">
@@ -230,8 +262,26 @@
             </view>
           </view>
         </scroll-view>
-        <view class="out-footer" @click="showBoss = true">
+        <view class="out-footer" @click="openBoss">
           <text class="boss-link">⚔️ 挑战自我</text>
+        </view>
+      </view>
+    </wd-popup>
+
+    <!-- 世界地图弹窗 -->
+    <wd-popup v-model="showMap" position="center" custom-style="border-radius: 32rpx; width: 88vw; max-width: 680rpx; margin-bottom: 140rpx;">
+      <view class="shop-panel">
+        <view class="shop-head">
+          <text class="t">世界地图</text>
+          <text class="p">点击目的地出发</text>
+        </view>
+        <image class="map-img" :src="MAP_IMG" mode="aspectFill" />
+        <view class="map-grid">
+          <view v-for="w in WORLD_PLACES" :key="w.id" class="map-cell" @click="onGoWorld(w)">
+            <text class="mc-icon">{{ w.icon }}</text>
+            <text class="mc-name">{{ w.name }}</text>
+            <text class="mc-mark">{{ w.landmark }}</text>
+          </view>
         </view>
       </view>
     </wd-popup>
@@ -265,9 +315,8 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onShow, onHide } from '@dcloudio/uni-app'
+import { onShow, onHide, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { callFunction, reportCloudError } from '@/utils/cloud'
-import { isDark } from '@/utils/theme'
 import TabBar from '@/components/TabBar.vue'
 
 // ---- 数据 ----
@@ -278,13 +327,17 @@ const avatar = ref({
 const showShop = ref(false)
 const showAttr = ref(false)
 const showOut = ref(false)
+const showMap = ref(false)
 const showBoss = ref(false)
+// 任一弹窗打开时隐藏舞台上的动画元素（小程序里无限位移动画会被合成到弹窗之上）
+const popupOpen = computed(() => showShop.value || showAttr.value || showOut.value || showMap.value || showBoss.value)
 const shopTab = ref('all')
 
 // 出门倒计时
 const outing = ref(false)
 const outingPlace = ref({})
 const outingRemain = ref('')
+const outingEnd = ref(0)
 let outingTimer = null
 
 // 饰品商店分类（全部商品 + 已拥有的稀有/掉落物品）
@@ -297,13 +350,14 @@ const shopTabs = [
   { key: 'acc', label: '配饰' },
   { key: 'pet', label: '宠物' },
   { key: 'furniture', label: '家具' },
-  { key: 'bg', label: '背景' }
+  { key: 'bg', label: '背景' },
+  { key: 'houseSkin', label: '房子' }
 ]
 
 // 宠物 emoji 映射
-const PET_EMOJI = { pet_cat: '🐱', pet_dog: '🐕', pet_rabbit: '🐇', pet_chick: '🐤', pet_hamster: '🐹', pet_panda: '🐼', pet_fox: '🦊', pet_penguin: '🐧', rare_dragon: '🐉' }
+const PET_EMOJI = { pet_cat: '🐱', pet_dog: '🐕', pet_rabbit: '🐇', pet_chick: '🐤', pet_hamster: '🐹', pet_panda: '🐼', pet_fox: '🦊', pet_penguin: '🐧', rare_dragon: '🐉', pet_bird: '🐦', pet_turtle: '🐢', pet_parrot: '🦜', pet_hedgehog: '🦔', pet_duck: '🦆', pet_frog: '🐸' }
 // 家具 emoji 映射（fur_rug 是纯 CSS 地毯，fur_window/fur_clock 也是 CSS 绘制）
-const FUR_EMOJI = { fur_sofa: '🛋️', fur_bed: '🛏️', fur_lamp: '💡', fur_plant: '🪴', fur_table: '🪑', fur_tv: '📺', fur_bookshelf: '📚', rare_castle: '🏰', rare_mirror: '🪞', drop_scroll: '📜', drop_shell: '🐚', fur_wallstar: '✨', fur_painting: '🖼️', fur_photo: '📷', fur_cloud: '☁️', fur_windbell: '🎐', fur_tapestry: '🧶' }
+const FUR_EMOJI = { fur_sofa: '🛋️', fur_bed: '🛏️', fur_lamp: '💡', fur_plant: '🪴', fur_table: '🪑', fur_tv: '📺', fur_bookshelf: '📚', rare_castle: '🏰', rare_mirror: '🪞', drop_scroll: '📜', drop_shell: '🐚', fur_wallstar: '✨', fur_painting: '🖼️', fur_photo: '📷', fur_cloud: '☁️', fur_windbell: '🎐', fur_tapestry: '🧶', fur_fountain: '⛲', fur_tent: '⛺', fur_umbrella: '⛱️', fur_bonfire: '🔥', fur_tree: '🌳', fur_sunflower: '🌻', fur_mushroom: '🍄', fur_lantern: '🏮', fur_woodhorse: '🎠', fur_kite: '🪁', fur_aquarium: '🐠', fur_piano: '🎹', fur_guitar: '🎸', fur_easel: '🎨', fur_cactus: '🌵', fur_candle: '🕯️', fur_giftbox: '🎁' }
 // 家具默认摆放位置（百分比，x/y 为元素左上角；与原 CSS 定位换算一致）
 const DEFAULT_FURN_POS = {
   fur_sofa: { x: 8, y: 74 }, fur_bed: { x: 84, y: 72 }, fur_lamp: { x: 88, y: 20 },
@@ -313,13 +367,24 @@ const DEFAULT_FURN_POS = {
   fur_window: { x: 50, y: 12 }, fur_clock: { x: 92, y: 14 },
   // 墙面装饰：默认贴在墙上（y 小 = 靠上）
   fur_wallstar: { x: 26, y: 1 }, fur_painting: { x: 24, y: 12 }, fur_photo: { x: 40, y: 9 },
-  fur_cloud: { x: 74, y: 3 }, fur_windbell: { x: 58, y: 5 }, fur_tapestry: { x: 6, y: 12 }
+  fur_cloud: { x: 74, y: 3 }, fur_windbell: { x: 58, y: 5 }, fur_tapestry: { x: 6, y: 12 },
+  // 庭院向家具：默认分散在草地上（y 60 以下 = 地面区）
+  fur_fountain: { x: 42, y: 64 }, fur_tent: { x: 10, y: 66 }, fur_umbrella: { x: 68, y: 62 },
+  fur_bonfire: { x: 48, y: 80 }, fur_tree: { x: 4, y: 56 }, fur_sunflower: { x: 86, y: 70 },
+  fur_mushroom: { x: 28, y: 82 }, fur_lantern: { x: 58, y: 58 }, fur_woodhorse: { x: 18, y: 78 },
+  fur_kite: { x: 74, y: 28 },
+  // 室内新家具
+  fur_aquarium: { x: 56, y: 68 }, fur_piano: { x: 10, y: 66 }, fur_guitar: { x: 88, y: 66 },
+  fur_easel: { x: 40, y: 70 }, fur_cactus: { x: 92, y: 78 }, fur_candle: { x: 46, y: 76 },
+  fur_giftbox: { x: 64, y: 82 }
 }
 // 宠物默认站位（百分比，x/y 为元素左上角，分散在屋内）
 const DEFAULT_PET_POS = {
   pet_cat: { x: 18, y: 78 }, pet_dog: { x: 70, y: 80 }, pet_rabbit: { x: 32, y: 82 },
   pet_chick: { x: 52, y: 84 }, pet_hamster: { x: 62, y: 74 }, pet_panda: { x: 26, y: 68 },
-  pet_fox: { x: 80, y: 70 }, pet_penguin: { x: 44, y: 78 }, rare_dragon: { x: 60, y: 64 }
+  pet_fox: { x: 80, y: 70 }, pet_penguin: { x: 44, y: 78 }, rare_dragon: { x: 60, y: 64 },
+  pet_bird: { x: 56, y: 74 }, pet_turtle: { x: 12, y: 84 }, pet_parrot: { x: 84, y: 60 },
+  pet_hedgehog: { x: 38, y: 84 }, pet_duck: { x: 66, y: 82 }, pet_frog: { x: 22, y: 86 }
 }
 const FALLBACK_POS = { x: 50, y: 70 }
 const SCALE_MIN = 0.6
@@ -348,17 +413,37 @@ function normArrange(list, defaults) {
   })
 }
 
-// 装备数据归一化：每个槽位都是数组（兼容旧的单件格式；家具与宠物统一为 {id,x,y,scale}）
+// 装备数据归一化：身体部位/背景/房子外观为单件字符串；家具与宠物为可布置数组（统一 {id,x,y,scale}）
+// 家里家具（furniture）与庭院家具（yardFurniture）是两个独立空间
 const equipped = computed(() => {
   const raw = avatar.value.equipped || {}
   const norm = {}
-  for (const k of ['top', 'hat', 'acc', 'pants', 'gloves', 'pet', 'furniture', 'bg']) {
+  // 单件槽位：取字符串值（兼容旧数组格式，取最后一个元素）
+  for (const k of ['top', 'hat', 'acc', 'pants', 'gloves', 'bg', 'houseSkin']) {
+    const v = raw[k]
+    norm[k] = Array.isArray(v) ? (v[v.length - 1] || null) : (v || null)
+  }
+  // 可布置数组槽位
+  for (const k of ['pet', 'yardPet', 'furniture', 'yardFurniture']) {
     const v = raw[k]
     norm[k] = Array.isArray(v) ? v : (v ? [v] : [])
   }
   norm.furniture = normArrange(norm.furniture, DEFAULT_FURN_POS)
+  norm.yardFurniture = normArrange(norm.yardFurniture, DEFAULT_FURN_POS)
   norm.pet = normArrange(norm.pet, DEFAULT_PET_POS)
+  norm.yardPet = normArrange(norm.yardPet, DEFAULT_PET_POS)
   return norm
+})
+
+// 当前房间的家具/宠物槽位：庭院用 yardFurniture / yardPet，其余用 furniture / pet
+const furnSlotKey = computed(() => (room.value === 'yard' ? 'yardFurniture' : 'furniture'))
+const petSlotKey = computed(() => (room.value === 'yard' ? 'yardPet' : 'pet'))
+// 当前房间要渲染的宠物（家里与庭院互不影响；弹窗打开时隐藏，避免无限位移动画穿透弹窗）
+const petList = computed(() => {
+  if (popupOpen.value) return []
+  if (room.value === 'yard') return equipped.value.yardPet
+  if (room.value === 'home') return equipped.value.pet
+  return []
 })
 
 // 饰品商店过滤：商店商品（有 price）全部显示；稀有/掉落物品（无 price）仅已拥有时显示，便于装备
@@ -367,11 +452,18 @@ const filteredShop = computed(() => {
   return list.filter(g => (shopTab.value === 'all' || g.slot === shopTab.value) && (g.price != null || g.owned))
 })
 
-// 舞台背景 class（多装备时取最新装备的一个）
+// 舞台背景 class：单件 bg 装备直接取；bg_default 视为未装备（显示默认舞台）
 const stageBgClass = computed(() => {
-  const arr = equipped.value.bg || []
-  const bg = arr[arr.length - 1]
-  return bg ? `stage-${bg}` : ''
+  const bg = equipped.value.bg
+  if (!bg || bg === 'bg_default') return ''
+  return `stage-${bg}`
+})
+
+// 庭院小房子皮肤：houseSkin 装备直接取；hs_default 视为默认样式
+const houseSkinClass = computed(() => {
+  const hs = equipped.value.houseSkin
+  if (!hs || hs === 'hs_default') return ''
+  return `hs-${hs}`
 })
 
 // 布置元素内联样式：位置 + 缩放（数据驱动，布置后保存在用户档案里）
@@ -491,14 +583,116 @@ async function load() {
     reportCloudError('getAvatar', e)
   }
 }
-onShow(load)
+onShow(() => { load(); measureStage() })
 
-// ---- 触摸移动：点击走一段，按住持续走 ----
-const pos = ref({ x: 50, y: 38 })
+// 量取舞台尺寸：用于把背景图里的地面线换算成舞台坐标
+function measureStage() {
+  setTimeout(() => {
+    uni.createSelectorQuery().select('.stage').boundingClientRect(rect => {
+      if (rect) stageSize.value = { w: rect.width, h: rect.height }
+    }).exec()
+  }, 120)
+}
+
+// ---- 触摸移动：点击走一段，按住持续走（下半区可自由行走） ----
+const pos = ref({ x: 50, y: 40 })
 const facing = ref('front')
 const faceLeft = ref(false)
 const moving = ref(false)
-const room = ref('home') // 'home' 主小屋 / 'bmi' BMI 展示间
+const room = ref('home') // 'home' 小屋 / 'yard' 庭院 / 'bmi' BMI 展示间 / 场馆id / 世界地点id
+
+// AI 场景资源（CloudBase 存储桶为私有读，必须用 cloud:// fileID）
+const CLOUD = 'cloud://letsdoenv-d1gndgyhv2f9d22fb.6c65-letsdoenv-d1gndgyhv2f9d22fb-1507384605'
+const SCENE_BG = {
+  home: CLOUD + '/avatar/bg_home.jpg',
+  gym: CLOUD + '/avatar/bg_gym.jpg',
+  library: CLOUD + '/avatar/bg_library.jpg',
+  park: CLOUD + '/avatar/bg_park.jpg',
+  cafe: CLOUD + '/avatar/bg_cafe.jpg',
+  pool: CLOUD + '/avatar/bg_pool.jpg',
+  usa: CLOUD + '/avatar/bg_usa.jpg',
+  france: CLOUD + '/avatar/bg_france.jpg',
+  japan: CLOUD + '/avatar/bg_japan.jpg',
+  egypt: CLOUD + '/avatar/bg_egypt.jpg',
+  uk: CLOUD + '/avatar/bg_uk.jpg',
+  china: CLOUD + '/avatar/bg_china.jpg'
+}
+const MAP_IMG = CLOUD + '/avatar/map_world.jpg'
+// 世界地图目的地（免费参观，无属性奖励）
+const WORLD_PLACES = [
+  { id: 'usa', name: '美国', icon: '🗽', landmark: '自由女神像' },
+  { id: 'france', name: '法国', icon: '🗼', landmark: '埃菲尔铁塔' },
+  { id: 'japan', name: '日本', icon: '🗻', landmark: '富士山' },
+  { id: 'egypt', name: '埃及', icon: '🐫', landmark: '金字塔' },
+  { id: 'uk', name: '英国', icon: '🎡', landmark: '大本钟' },
+  { id: 'china', name: '中国', icon: '🏯', landmark: '万里长城' }
+]
+const isVenueRoom = r => OUT_PLACES.some(p => p.id === r)
+const isWorldRoom = r => WORLD_PLACES.some(p => p.id === r)
+
+// ---- 舞台地面线（墙与地的分界线） ----
+// 所有背景图统一为 1024×691，分界线画在图片高度 60% 处；门底、人物脚底都锁在同一条线上
+const IMG_W = 1024
+const IMG_H = 691
+const FLOOR_FALLBACK = 60 // 无 AI 背景（纯渐变舞台）时的分界线
+// 每张背景图的墙地分界线（占图片高度百分比）——本批成品实测 59~61%，逐张记录
+const SCENE_FLOOR = {
+  home: 60, yard: 60, gym: 60, library: 59, park: 60, cafe: 60,
+  pool: 60, usa: 61, france: 60, japan: 59, egypt: 60, uk: 61, china: 60
+}
+// 舞台实际尺寸（用于把图片里的分界线换算到舞台坐标，aspectFill 会裁切）
+const stageSize = ref({ w: 0, h: 0 })
+
+// 人物脚底 / 门底所在的舞台高度百分比
+const floorPct = computed(() => {
+  const img = stageBgImg.value
+  const { w, h } = stageSize.value
+  if (!img || !w || !h) return FLOOR_FALLBACK
+  const line = (SCENE_FLOOR[room.value] || FLOOR_FALLBACK) / 100
+  // aspectFill：按覆盖舞台的最大缩放比铺图，多出的部分上下/左右居中裁掉
+  const scale = Math.max(w / IMG_W, h / IMG_H)
+  const dispH = IMG_H * scale
+  const offsetY = (dispH - h) / 2
+  const lineY = line * dispH - offsetY
+  return Math.min(85, Math.max(30, (lineY / h) * 100))
+})
+// 门底：与地面线重合
+const doorBottom = computed(() => (100 - floorPct.value) + '%')
+
+// 人物为纯 CSS 纸娃娃（无图片资源），胖瘦由 charStyle 的 --fat / --fat-head 驱动
+
+// 舞台背景图：home 装备了渐变背景时让位给装备；庭院用 CSS 渐变（与小屋默认风格一致）；其它房间用对应 AI 背景
+const stageBgImg = computed(() => {
+  if (room.value === 'home') return stageBgClass.value ? '' : SCENE_BG.home
+  if (room.value === 'yard') return ''
+  return SCENE_BG[room.value] || ''
+})
+
+// 每个房间的门（null 表示该侧没有门），label 用数组支持多行
+const doorCfg = computed(() => {
+  const r = room.value
+  if (r === 'home') return { left: ['庭院'], right: ['BMI', '人物展示'] }
+  if (r === 'bmi') return { left: ['返回小屋'], right: null }
+  // 庭院 / 场馆 / 世界地点不再有实体门，由绿色箭头出口代替
+  return { left: null, right: null }
+})
+
+// 房间胶囊：场馆显示名称+倒计时，世界地点显示名称+地标
+const roomPill = computed(() => {
+  if (outing.value) return `${outingPlace.value.icon || ''} ${outingPlace.value.name || ''}`
+  const w = WORLD_PLACES.find(p => p.id === room.value)
+  return w ? `${w.icon} ${w.name} · ${w.landmark}` : ''
+})
+
+// 切换房间并放置人物（x 为横向百分比，y 为脚底距舞台底部的百分比）
+function enterRoom(r, x, y = 40) {
+  room.value = r
+  pos.value.x = x
+  // 脚底最高只能到地面线：y 不超过 100 - 地面线百分比
+  pos.value.y = Math.max(0, Math.min(y, 100 - floorPct.value))
+  facing.value = 'front'
+  faceLeft.value = false
+}
 
 // BMI 展示间：同一身高下不同 BMI 的静态模特
 const BMI_DEMO = [16, 18.5, 22, 26, 30]
@@ -525,8 +719,8 @@ let stopTimer = null
 let lastDir = null
 
 const STEP = 5
-// 可活动范围（百分比）：左右几乎贴墙、上下加大，比例更自由
-const BOUND = { xMin: 6, xMax: 88, yMin: 8, yMax: 64 }
+// 可活动范围（百分比）：左右在舞台内；纵向 0 = 舞台底边，上限 = 地面线（脚底不可上墙）
+const BOUND = { xMin: 6, xMax: 88 }
 
 // 获取舞台在页面中的位置
 function getStageRect() {
@@ -537,6 +731,8 @@ function getStageRect() {
 
 // 根据触摸点与人物位置计算方向并移动一步（节流：touchmove 触发太频繁会导致 setData 风暴）
 let lastMoveAt = 0
+let touchStartPoint = null
+let lastExitAt = 0
 function moveByTouch(touch) {
   if (!stageRect) return
   const now = Date.now()
@@ -545,49 +741,70 @@ function moveByTouch(touch) {
   const px = ((touch.clientX - stageRect.left) / stageRect.width) * 100
   const py = ((touch.clientY - stageRect.top) / stageRect.height) * 100
   const dx = px - pos.value.x
-  const dy = py - pos.value.y
-  let dir
-  if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? 'right' : 'left'
-  else dir = dy > 0 ? 'down' : 'up'
+  const dy = py - (100 - pos.value.y) // 触摸点相对人物脚底的位置（负值代表目标在人物上方）
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) { moving.value = false; return }
+  // 纵向偏差明显大于横向时才上下走，避免轻微抖动导致原地上下
+  const dir = Math.abs(dy) > Math.abs(dx) * 1.5
+    ? (dy < 0 ? 'up' : 'down')
+    : (dx > 0 ? 'right' : 'left')
   lastDir = dir
   doMove(dir)
 }
 
 function doMove(dir) {
   const p = pos.value
+  const maxY = Math.max(0, 100 - floorPct.value) // 脚底最高可到的百分比（地面线）
   if (dir === 'left') { p.x = Math.max(BOUND.xMin, p.x - STEP); faceLeft.value = true }
   if (dir === 'right') { p.x = Math.min(BOUND.xMax, p.x + STEP); faceLeft.value = false }
-  if (dir === 'up') p.y = Math.max(BOUND.yMin, p.y - STEP)
-  if (dir === 'down') p.y = Math.min(BOUND.yMax, p.y + STEP)
+  if (dir === 'up') p.y = Math.min(maxY, p.y + STEP)
+  if (dir === 'down') p.y = Math.max(0, p.y - STEP)
   facing.value = 'side'
   moving.value = true
   clearTimeout(stopTimer)
   stopTimer = setTimeout(() => { moving.value = false; facing.value = 'front' }, 500)
-  // 进门判定：精确到门的 x 范围，且人物头顶进入门的 y 范围（门顶 30% ~ 门底 60%）才触发
-  // 门的 x 范围：右侧门 [84%, 97%]（right:3% + 宽12.8%），左侧门 [3%, 16%]（left:3% + 宽12.8%）
-  if (room.value === 'home' && p.x >= 85 && p.y >= 25) {
-    room.value = 'bmi'
-    p.x = 25
-    p.y = 45
-    facing.value = 'front'
-    faceLeft.value = false
-  } else if (room.value === 'home' && p.x <= 16 && p.y >= 25) {
-    // 走到左侧门口：弹出门菜单，并把人往回推一点避免重复触发
-    p.x = 24
-    showOut.value = true
-  } else if (room.value === 'bmi' && p.x <= 16 && p.y >= 25) {
-    room.value = 'home'
-    p.x = 82
-    p.y = 45
-    facing.value = 'front'
-    faceLeft.value = false
+  // 进门判定：只有小屋 / BMI 展示间保留实体门，其余房间用可点击的箭头出口
+  const atLeft = p.x <= 16
+  const atRight = p.x >= 85
+  if (room.value === 'home') {
+    if (atRight) enterRoom('bmi', 25, 45) // 右门：BMI 展示间
+    else if (atLeft) enterRoom('yard', 78, 45) // 左门：走进庭院
+  } else if (room.value === 'bmi') {
+    if (atLeft) enterRoom('home', 82, 40)
+  } else if (room.value === 'yard') {
+    // 走到最右侧小房子：回客厅
+    if (atRight) enterRoom('home', 20, 40)
   }
+  // 场馆 / 世界地点：不再有实体门，改用可点击的箭头出口
+}
+
+// 绿色箭头出口：场馆与世界地点（回家）；庭院左侧（出门）用绿色箭头，右侧小房子回室内
+const exitCfg = computed(() => {
+  const r = room.value
+  if (r === 'yard') return { left: '出门', right: null }
+  if (isVenueRoom(r) || isWorldRoom(r)) return { left: null, right: '回家' }
+  return { left: null, right: null }
+})
+
+function onExit(side) {
+  // 点击与 touchend 兜底可能同时触发，去重
+  if (Date.now() - lastExitAt < 400) return
+  lastExitAt = Date.now()
+  const r = room.value
+  if (r === 'yard') {
+    if (side === 'left') showOut.value = true
+    else enterRoom('home', 20, 40) // 回小屋
+    return
+  }
+  if (side !== 'right') return
+  if (isVenueRoom(r)) goHomeFromVenue()
+  else if (isWorldRoom(r)) enterRoom('yard', 78, 40) // 回庭院
 }
 
 async function onStageTouchStart(e) {
-  if (!avatar.value.hasProfile || outing.value || furnishing.value) return
+  if (!avatar.value.hasProfile || furnishing.value) return
   if (!stageRect) stageRect = await getStageRect()
   const touch = e.touches[0]
+  touchStartPoint = { x: touch.clientX, y: touch.clientY, at: Date.now() }
   moveByTouch(touch)
   // 按住持续移动
   clearInterval(moveInterval)
@@ -599,12 +816,39 @@ function onStageTouchMove(e) {
   moveByTouch(e.touches[0])
 }
 
-function onStageTouchEnd() {
+// 舞台轻点：若落在左右箭头出口区域，直接触发（兜底：不依赖子元素 tap 事件）
+function hitExitByPoint(t) {
+  if (!stageRect || !t) return null
+  const xPct = ((t.clientX - stageRect.left) / stageRect.width) * 100
+  const yPct = ((t.clientY - stageRect.top) / stageRect.height) * 100
+  // 只在箭头/小房子所在的高度带内生效，避免点人物脚边误触发；庭院房子较高，命中带放宽
+  const floorTop = floorPct.value
+  const bandUp = room.value === 'yard' ? 45 : 26
+  if (yPct < floorTop - bandUp || yPct > floorTop + 2) return null
+  if (xPct <= 14 && exitCfg.value.left) return 'left'
+  if (xPct >= 86 && exitCfg.value.right) return 'right'
+  // 庭院右侧小房子区域：点击/碰到即回家（房子贴右缘，命中带放宽到 70%+）
+  if (room.value === 'yard' && xPct >= 70) return 'right'
+  return null
+}
+
+function onStageTouchEnd(e) {
   clearInterval(moveInterval)
   moveInterval = null
   lastDir = null
   clearTimeout(stopTimer)
   stopTimer = setTimeout(() => { moving.value = false; facing.value = 'front' }, 300)
+
+  // 位移很小视为一次点击：命中箭头区域就执行出口动作
+  const t = e && e.changedTouches && e.changedTouches[0]
+  if (t && touchStartPoint && Date.now() - touchStartPoint.at < 700) {
+    const moved = Math.hypot(t.clientX - touchStartPoint.x, t.clientY - touchStartPoint.y)
+    if (moved < 12) {
+      const side = hitExitByPoint(t)
+      if (side) onExit(side)
+    }
+  }
+  touchStartPoint = null
 }
 
 onHide(() => {
@@ -652,32 +896,29 @@ async function onGoOut(place) {
     uni.showToast({ title: '积分不足', icon: 'none' })
     return
   }
-  uni.showModal({
-    title: `去${place.name}`,
-    content: `消耗 ${place.cost} 积分，${place.duration} 分钟后返回，可获得 ${place.attrText}`,
-    success: async (res) => {
-      if (!res.confirm) return
-      try {
-        const ret = await callFunction('avatarService', { action: 'goOut', placeId: place.id })
-        const r = ret.result || {}
-        if (r.code === 'OK') {
-          showOut.value = false
-          startOuting(place, r.data.endTime)
-          avatar.value.totalPoint -= place.cost
-        } else {
-          uni.showToast({ title: r.message || '出门失败', icon: 'none' })
-        }
-      } catch (e) {
-        reportCloudError('goOut', e)
-      }
+  // 不再弹窗确认，点击直接出发
+  try {
+    const ret = await callFunction('avatarService', { action: 'goOut', placeId: place.id })
+    const r = ret.result || {}
+    if (r.code === 'OK') {
+      showOut.value = false
+      startOuting(place, r.data.endTime)
+      avatar.value.totalPoint -= place.cost
+    } else {
+      uni.showToast({ title: r.message || '出门失败', icon: 'none' })
     }
-  })
+  } catch (e) {
+    reportCloudError('goOut', e)
+  }
 }
 
 function startOuting(place, endTime) {
   clearInterval(outingTimer)
   outing.value = true
   outingPlace.value = place
+  outingEnd.value = endTime
+  // 人物真的走进对应场馆房间，倒计时显示在房间胶囊上
+  enterRoom(place.id, 50, 45)
   const update = () => {
     const remain = Math.max(0, endTime - Date.now())
     const m = Math.floor(remain / 60000)
@@ -707,6 +948,7 @@ async function finishOuting() {
         content,
         showCancel: false
       })
+      enterRoom('yard', 78, 45)
       load() // 刷新属性
     }
   } catch (e) {
@@ -714,8 +956,12 @@ async function finishOuting() {
   }
 }
 
-// 提前退出出门：无属性加成、无掉落，直接回家不弹确认
-async function quitOuting() {
+// 场馆右门回家：未达奖励时间则提前回家（无加成、无掉落），到点则正常结算
+async function goHomeFromVenue() {
+  if (outingEnd.value - Date.now() <= 0) {
+    finishOuting()
+    return
+  }
   try {
     await callFunction('avatarService', { action: 'quitOut' })
   } catch (e) {
@@ -723,8 +969,20 @@ async function quitOuting() {
   }
   clearInterval(outingTimer)
   outing.value = false
+  enterRoom('yard', 78, 45)
   uni.showToast({ title: '提前回家了，本次没有奖励', icon: 'none' })
   load()
+}
+
+// 世界地图：打开弹窗 / 前往目的地
+function openMap() {
+  showOut.value = false
+  // 两个弹窗同帧切换会导致地图弹窗渲染失败（世界地图不显示的根因），等出门弹窗关闭动画结束再打开
+  setTimeout(() => { showMap.value = true }, 260)
+}
+function onGoWorld(w) {
+  showMap.value = false
+  enterRoom(w.id, 50, 45)
 }
 
 // ---- Boss 挑战（七大罪，傲慢最强）----
@@ -789,9 +1047,11 @@ const charClass = computed(() => [
 
 const charStyle = computed(() => {
   const fat = avatar.value.fat || 1
+  const maxY = Math.max(0, 100 - floorPct.value)
   return {
     left: pos.value.x + '%',
-    top: pos.value.y + '%',
+    // 脚底：0 = 舞台底边，上限 = 地面线（最高只能到地平线，绝不上墙）
+    bottom: Math.min(pos.value.y, maxY) + '%',
     '--fat': fat,
     '--fat-head': (1 + (fat - 1) * 0.4).toFixed(3)
   }
@@ -802,10 +1062,16 @@ function openShop() {
   showShop.value = true
 }
 
+// 从出门菜单进入挑战自我：先关掉出门弹窗，否则两个居中弹窗会重叠互相遮挡
+function openBoss() {
+  showOut.value = false
+  showBoss.value = true
+}
+
 function goodBtnText(g) {
   if (g.equipped) return '卸下'
   if (g.owned) return '装备'
-  return `⭐ ${g.price}`
+  return g.price > 0 ? `⭐ ${g.price}` : '免费'
 }
 
 function goodBtnClass(g) {
@@ -819,9 +1085,9 @@ function goodBtnClass(g) {
 
 async function onGood(g) {
   if (g.owned) {
-    // 装备 / 卸下
+    // 装备 / 卸下（家具放到当前所在房间：庭院装备的进庭院，家里的进家里，两个空间独立）
     try {
-      const res = await callFunction('avatarService', { action: 'equipItem', itemId: g.id })
+      const res = await callFunction('avatarService', { action: 'equipItem', itemId: g.id, space: room.value === 'yard' ? 'yard' : 'home' })
       const ret = res.result || {}
       if (ret.code === 'OK') {
         load()
@@ -858,6 +1124,9 @@ async function onGood(g) {
 function goMine() {
   uni.redirectTo({ url: '/pages/mine/index' })
 }
+// 微信右上角菜单：转发给朋友 / 分享到朋友圈
+onShareAppMessage(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
+onShareTimeline(() => ({ title: 'LetsDo · 吃得健康，动得开心' }))
 </script>
 
 <style lang="scss" scoped>
@@ -910,7 +1179,6 @@ function goMine() {
   background: linear-gradient(135deg, #fff3bf, #ffe066); color: #e67700; font-size: 22rpx; font-weight: 800;
 }
 .hut-actions { display: flex; gap: 14rpx; align-items: center; }
-.hut-ico { font-size: 26rpx; line-height: 1; margin-right: 8rpx; }
 .hut-btn {
   height: 56rpx;
   padding: 0 26rpx;
@@ -919,11 +1187,9 @@ function goMine() {
   display: flex;
   align-items: center;
   justify-content: center;
-  &.equip { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
-  &.attr { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
-  &.place { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
+  /* 三个按钮统一为「布置」的浅绿样式 */
+  &.attr, &.place, &.shop { background: var(--ld-primary-soft); color: var(--ld-primary-dark); }
   &.place.on { background: #ffd43b; color: #5c4400; }
-  &.shop { background: var(--ld-primary); color: #fff; }
 }
 
 /* 舞台 */
@@ -940,9 +1206,23 @@ function goMine() {
   &.stage-bg_sakura { background: linear-gradient(180deg, #fcc2d7 0%, #fcc2d7 60%, #ffe8cc 60%, #ffe8cc 100%); }
   &.stage-bg_rainy { background: linear-gradient(180deg, #868e96 0%, #868e96 60%, #adb5bd 60%, #adb5bd 100%); }
   &.stage-bg_snow { background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 60%, #fff 60%, #fff 100%); }
+  /* 庭院：与小屋默认渐变同款的两段式，天空蓝 + 草地绿，地面线同样在 60% */
+  &.room-yard { background: linear-gradient(180deg, #bfe9ff 0%, #dff3ff 60%, #a9e34b 60%, #94d82d 100%); }
 }
 .egg { position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%); font-size: 100rpx; }
-/* 舞台 */
+
+/* AI 场景背景：铺满舞台，置于门/人物之下 */
+.stage-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+
+/* 房间胶囊：场馆倒计时 / 世界地名 */
+.room-pill {
+  position: absolute; top: 4%; left: 50%; transform: translateX(-50%);
+  z-index: 3; display: flex; align-items: center; gap: 12rpx;
+  padding: 10rpx 26rpx; border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.88); box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.1);
+  font-size: 22rpx; font-weight: 700; color: var(--ld-text); white-space: nowrap;
+  .rp-time { color: var(--ld-primary-dark); font-weight: 800; font-size: 26rpx; font-variant-numeric: tabular-nums; }
+}
 
 /* 门：两个房间地面线都在 60%（距底 40%），统一贴地 */
 .door {
@@ -976,6 +1256,177 @@ function goMine() {
   }
 }
 
+/* 绿色箭头出口：文字在上、圆形绿色箭头在下，底部贴地面线，点击即走 */
+.exit {
+  position: absolute; z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 8rpx;
+
+  &.exit-left { left: 4%; }
+  &.exit-right { right: 4%; }
+
+  .exit-txt {
+    font-size: 22rpx; font-weight: 800; color: #2b8a3e;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 4rpx 16rpx; border-radius: 999rpx;
+    box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.12);
+  }
+  .exit-arrow {
+    width: 66rpx; height: 66rpx; border-radius: 50%;
+    background: linear-gradient(135deg, #69db7c, #2f9e44);
+    color: #fff; font-size: 40rpx; font-weight: 900;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    box-shadow: 0 6rpx 16rpx rgba(47, 158, 68, 0.4);
+    animation: exitBob 1.4s ease-in-out infinite;
+  }
+}
+@keyframes exitBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8rpx); }
+}
+
+/* ===== 庭院右侧小房子：45° 侧视半边房，碰到房子即回室内（贴合最右侧，图层在人物下方） ===== */
+.yard-house {
+  position: absolute; right: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  width: 300rpx;
+
+  /* 单边 45° 坡屋顶：左低右高 */
+  .yh-roof {
+    width: 300rpx; height: 120rpx;
+    background: linear-gradient(135deg, #f19162 0%, #d2603a 100%);
+    clip-path: polygon(0% 100%, 100% 0%, 100% 100%);
+  }
+  /* 墙体：与屋顶右侧竖直边对齐 */
+  .yh-wall {
+    position: relative;
+    width: 250rpx; height: 240rpx;
+    margin-left: 50rpx;
+    background: linear-gradient(180deg, #fff7e8 0%, #ffe4bd 100%);
+    border: 4rpx solid #e0b784;
+    border-top: none;
+    border-radius: 0 0 16rpx 16rpx;
+    box-shadow: 0 6rpx 16rpx rgba(0, 0, 0, 0.14);
+  }
+  .yh-window {
+    position: absolute; top: 34rpx; left: 26rpx;
+    width: 62rpx; height: 60rpx;
+    background: #bfe3ff;
+    border: 4rpx solid #e0b784;
+    border-radius: 6rpx;
+    box-shadow: inset 0 0 0 2rpx rgba(255,255,255,0.5);
+  }
+  /* 窗框：十字格 */
+  .yh-window::before,
+  .yh-window::after {
+    content: '';
+    position: absolute;
+    background: #e0b784;
+  }
+  .yh-window::before { /* 竖线 */
+    left: 50%; top: 0; bottom: 0; width: 4rpx;
+    transform: translateX(-50%);
+  }
+  .yh-window::after { /* 横线 */
+    top: 50%; left: 0; right: 0; height: 4rpx;
+    transform: translateY(-50%);
+  }
+  /* 门：与屋里实体门同款大小（96×180），仅作视觉，整个房子都可点击回室内 */
+  .yh-door {
+    position: absolute; bottom: 0; right: 28rpx;
+    width: 96rpx; height: 180rpx;
+    border-radius: 12rpx 12rpx 0 0;
+    background: linear-gradient(180deg, #b08968 0%, #8d6e63 100%);
+    box-shadow: inset 0 -10rpx 0 rgba(0, 0, 0, 0.12);
+  }
+  .yh-knob {
+    position: absolute; bottom: 82rpx; left: 14rpx;
+    width: 14rpx; height: 14rpx; border-radius: 50%;
+    background: #ffe066;
+    box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ===== 房子皮肤变体 ===== */
+/* 石头小屋 */
+.yard-house.hs-hs_stone {
+  .yh-roof { background: linear-gradient(135deg, #868e96 0%, #495057 100%); }
+  .yh-wall { background: linear-gradient(180deg, #ced4da 0%, #adb5bd 100%); border-color: #6c757d; }
+  .yh-window { background: #495057; border-color: #6c757d; }
+  .yh-window::before, .yh-window::after { background: #6c757d; }
+  .yh-door { background: linear-gradient(180deg, #343a40 0%, #212529 100%); }
+}
+/* 原木小屋 */
+.yard-house.hs-hs_log {
+  .yh-roof { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); }
+  .yh-wall {
+    background: repeating-linear-gradient(180deg,
+      #a1887f 0 10rpx, #8d6e63 10rpx 12rpx, #a1887f 12rpx 22rpx, #8d6e63 22rpx 24rpx);
+    border-color: #5d4037;
+  }
+  .yh-door { background: linear-gradient(180deg, #6d4c41 0%, #4e342e 100%); }
+}
+/* 南瓜小屋 */
+.yard-house.hs-hs_pumpkin {
+  .yh-roof { background: linear-gradient(135deg, #ffa94d 0%, #e67700 100%); }
+  .yh-wall { background: linear-gradient(180deg, #ffd43b 0%, #ffa94d 100%); border-color: #e67700; }
+  .yh-window { background: #212529; border-color: #e67700; }
+  .yh-door { background: linear-gradient(180deg, #5c2d00 0%, #3d1d00 100%); }
+}
+/* 冰屋 */
+.yard-house.hs-hs_ice {
+  .yh-roof { background: linear-gradient(135deg, #a5d8ff 0%, #74c0fc 100%); }
+  .yh-wall {
+    background: repeating-linear-gradient(180deg,
+      #dbe4ff 0 14rpx, #a5d8ff 14rpx 16rpx, #dbe4ff 16rpx 30rpx);
+    border-color: #4c6ef5;
+  }
+  .yh-window { background: #e7f5ff; border-color: #4c6ef5; }
+  .yh-door { background: linear-gradient(180deg, #74c0fc 0%, #339af0 100%); }
+}
+/* 蘑菇小屋 */
+.yard-house.hs-hs_mushroom {
+  .yh-roof {
+    background:
+      radial-gradient(circle at 40% 62%, #fff 0 16rpx, transparent 16rpx),
+      radial-gradient(circle at 70% 34%, #fff 0 13rpx, transparent 13rpx),
+      radial-gradient(circle at 86% 68%, #fff 0 10rpx, transparent 10rpx),
+      linear-gradient(135deg, #ff8787 0%, #e03131 100%);
+  }
+  .yh-wall { background: linear-gradient(180deg, #fff9db 0%, #fff3bf 100%); border-color: #e8b04b; }
+  .yh-window { background: #bfe3ff; border-color: #e8b04b; }
+  .yh-door { background: linear-gradient(180deg, #a57939 0%, #7a4f21 100%); }
+}
+/* 糖果小屋 */
+.yard-house.hs-hs_candy {
+  .yh-roof { background: repeating-linear-gradient(135deg, #ff8fab 0 26rpx, #ffc2d4 26rpx 52rpx); }
+  .yh-wall {
+    background: repeating-linear-gradient(180deg, #fff0f3 0 18rpx, #ffc2d4 18rpx 36rpx);
+    border-color: #ff8fab;
+  }
+  .yh-window { background: #fff; border-color: #ff8fab; }
+  .yh-door { background: linear-gradient(180deg, #e64980 0%, #c2255c 100%); }
+}
+/* 樱花小屋 */
+.yard-house.hs-hs_sakura {
+  .yh-roof { background: linear-gradient(135deg, #faa2c1 0%, #e64980 100%); }
+  .yh-wall { background: linear-gradient(180deg, #fff0f6 0%, #ffdeeb 100%); border-color: #faa2c1; }
+  .yh-window { background: #fff; border-color: #faa2c1; }
+  .yh-door { background: linear-gradient(180deg, #d6336c 0%, #a61e4d 100%); }
+}
+/* 城堡小屋 */
+.yard-house.hs-hs_castle {
+  .yh-roof { background: linear-gradient(135deg, #748ffc 0%, #3b5bdb 100%); }
+  .yh-wall {
+    background: repeating-linear-gradient(90deg, #e7e5df 0 30rpx, #d8d4c8 30rpx 33rpx),
+      linear-gradient(180deg, #e7e5df 0%, #c9c5ba 100%);
+    border-color: #8a867b;
+  }
+  .yh-window { background: #343a40; border-color: #8a867b; }
+  .yh-window::before, .yh-window::after { background: #8a867b; }
+  .yh-door { background: linear-gradient(180deg, #5c5346 0%, #3b362d 100%); }
+}
+
 /* BMI 展示间背景（地面线同样在 60%，门沿用统一样式） */
 .stage.room-bmi {
   background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 60%, #d0ebff 60%, #d0ebff 100%);
@@ -986,7 +1437,7 @@ function goMine() {
   z-index: 1; white-space: nowrap;
 }
 
-/* 静态模特：缩放、禁动 */
+/* 静态模特：复用纸娃娃整体缩放 */
 .model-wrap {
   position: absolute; bottom: 36%; z-index: 1;
 
@@ -1088,16 +1539,17 @@ function goMine() {
 }
 @keyframes petBob { from { transform: translateY(0); } to { transform: translateY(-8rpx); } }
 
-/* ===== 人物 CSS（与之前一致） ===== */
+/* ===== 人物：AI 立绘 + 装备叠加 ===== */
 .char {
   position: absolute; width: 220rpx; height: 250rpx; margin-left: -110rpx;
-  transition: left 0.2s ease, top 0.2s ease; z-index: 2;
+  transition: left 0.2s ease, bottom 0.2s ease; z-index: 2;
   &.moving { animation: bob 0.26s ease-in-out infinite alternate; }
   .char-inner { position: relative; width: 100%; height: 100%; transition: transform 0.15s; }
   &.flip .char-inner { transform: scaleX(-1); }
 }
 @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-10rpx); } }
 .shadow { position: absolute; top: 238rpx; left: 50%; margin-left: -56rpx; width: 112rpx; height: 18rpx; border-radius: 50%; background: rgba(0,0,0,0.08); }
+/* 纸娃娃：腿/身体/手臂/头部，胖瘦分别由 --fat（身体）与 --fat-head（头）驱动 */
 .leg {
   position: absolute; top: 202rpx; width: 32rpx; height: 46rpx; border-radius: 14rpx; background: #4c6ef5; z-index: 1;
   &::after { content: ''; position: absolute; bottom: -4rpx; left: -5rpx; width: 42rpx; height: 14rpx; border-radius: 8rpx; background: #343a40; }
@@ -1139,7 +1591,7 @@ function goMine() {
 .pants {
   position: absolute; left: 50%; top: 78rpx; transform: translateX(-50%);
   width: 100rpx; height: 50rpx; z-index: 1;
-  border-radius: 0 0 20rpx 20rpx;
+  border-radius: 0 0 20rpx 20rpx; background: #4a6ef5;
 
   &.pants_jeans { background: #4a6fa5; }
   &.pants_shorts { background: #ff8787; height: 30rpx; }
@@ -1151,8 +1603,7 @@ function goMine() {
   position: absolute; width: 28rpx; height: 28rpx; border-radius: 50%; z-index: 3;
   top: 48rpx;
 
-  &.g1 { left: -6rpx; }
-  &.g2 { right: -6rpx; }
+  &.g1 { left: -6rpx; } &.g2 { right: -6rpx; }
 
   &.gloves_wool { background: #ff8787; }
   &.gloves_leather { background: #8d6e63; }
@@ -1184,6 +1635,7 @@ function goMine() {
   position: absolute; top: 96rpx; left: 51rpx; width: 28rpx; height: 16rpx;
   border: 4rpx solid #3a2e26; border-top: none; border-radius: 0 0 28rpx 28rpx;
 }
+/* 侧面变体：行走时左右转隐藏远侧五官与手臂 */
 .char.side {
   .eye.e2, .blush.b2 { opacity: 0; }
   .eye.e1 { left: 84rpx; }
@@ -1276,6 +1728,7 @@ function goMine() {
   flex-direction: column;
   box-sizing: border-box;
   border-radius: 32rpx;
+  overflow: hidden;
 }
 .shop-head {
   display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
@@ -1290,7 +1743,8 @@ function goMine() {
   }
 }
 .shop-tip { display: block; margin-top: 10rpx; font-size: 20rpx; color: var(--ld-text-3); flex-shrink: 0; }
-.goods-wrap { flex: 1; min-height: 0; margin-top: 16rpx; }
+/* 滚动区给固定基准高度：否则 flex 收缩不掉会把底部「挑战自我」挤出弹窗外 */
+.goods-wrap { flex: 1 1 auto; height: 42vh; min-height: 0; margin-top: 16rpx; }
 .goods { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20rpx; padding-bottom: 20rpx; }
 .empty { text-align: center; padding: 60rpx 0; color: var(--ld-text-3); font-size: 26rpx; }
 .good {
@@ -1309,6 +1763,9 @@ function goMine() {
 
 /* 预览小图 */
 .pv {
+  /* 关键：所有预览伪元素（::before/::after）都是 absolute 定位，必须锚定在自身卡片内，
+     否则会飞到 scroll-view 容器的角落（圆眼镜镜片曾因此显示在商店第一排两角） */
+  position: relative;
   &.top_red, &.top_blue, &.top_stripe, &.top_star {
     width: 72rpx; height: 58rpx; border-radius: 20rpx; position: relative;
   }
@@ -1339,7 +1796,8 @@ function goMine() {
   &.acc_balloon { width: 46rpx; height: 56rpx; border-radius: 50% 50% 46% 54% / 58% 58% 42% 42%; background: radial-gradient(circle at 32% 28%, #ffa8a8, #fa5252); }
 
   /* 宠物预览 */
-  &.pet_cat, &.pet_dog, &.pet_rabbit, &.pet_chick, &.pet_hamster, &.pet_panda, &.pet_fox, &.pet_penguin, &.rare_dragon {
+  &.pet_cat, &.pet_dog, &.pet_rabbit, &.pet_chick, &.pet_hamster, &.pet_panda, &.pet_fox, &.pet_penguin, &.rare_dragon,
+  &.pet_bird, &.pet_turtle, &.pet_parrot, &.pet_hedgehog, &.pet_duck, &.pet_frog {
     width: 80rpx; height: 80rpx; display: grid; place-items: center; font-size: 64rpx; line-height: 1;
   }
   &.pet_cat::before { content: '🐱'; }
@@ -1351,9 +1809,18 @@ function goMine() {
   &.pet_fox::before { content: '🦊'; }
   &.pet_penguin::before { content: '🐧'; }
   &.rare_dragon::before { content: '🐉'; }
+  &.pet_bird::before { content: '🐦'; }
+  &.pet_turtle::before { content: '🐢'; }
+  &.pet_parrot::before { content: '🦜'; }
+  &.pet_hedgehog::before { content: '🦔'; }
+  &.pet_duck::before { content: '🦆'; }
+  &.pet_frog::before { content: '🐸'; }
 
   /* 家具预览 */
-  &.fur_sofa, &.fur_bed, &.fur_lamp, &.fur_plant, &.fur_table, &.fur_tv, &.fur_bookshelf, &.rare_castle {
+  &.fur_sofa, &.fur_bed, &.fur_lamp, &.fur_plant, &.fur_table, &.fur_tv, &.fur_bookshelf, &.rare_castle,
+  &.fur_fountain, &.fur_tent, &.fur_umbrella, &.fur_bonfire, &.fur_tree, &.fur_sunflower, &.fur_mushroom,
+  &.fur_lantern, &.fur_woodhorse, &.fur_kite, &.fur_aquarium, &.fur_piano, &.fur_guitar, &.fur_easel,
+  &.fur_cactus, &.fur_candle, &.fur_giftbox {
     width: 80rpx; height: 80rpx; display: grid; place-items: center; font-size: 64rpx; line-height: 1;
   }
   &.fur_sofa::before { content: '🛋️'; }
@@ -1364,6 +1831,23 @@ function goMine() {
   &.fur_tv::before { content: '📺'; }
   &.fur_bookshelf::before { content: '📚'; }
   &.rare_castle::before { content: '🏰'; }
+  &.fur_fountain::before { content: '⛲'; }
+  &.fur_tent::before { content: '⛺'; }
+  &.fur_umbrella::before { content: '⛱️'; }
+  &.fur_bonfire::before { content: '🔥'; }
+  &.fur_tree::before { content: '🌳'; }
+  &.fur_sunflower::before { content: '🌻'; }
+  &.fur_mushroom::before { content: '🍄'; }
+  &.fur_lantern::before { content: '🏮'; }
+  &.fur_woodhorse::before { content: '🎠'; }
+  &.fur_kite::before { content: '🪁'; }
+  &.fur_aquarium::before { content: '🐠'; }
+  &.fur_piano::before { content: '🎹'; }
+  &.fur_guitar::before { content: '🎸'; }
+  &.fur_easel::before { content: '🎨'; }
+  &.fur_cactus::before { content: '🌵'; }
+  &.fur_candle::before { content: '🕯️'; }
+  &.fur_giftbox::before { content: '🎁'; }
   &.fur_rug {
     width: 90rpx; height: 40rpx; border-radius: 50%; background: rgba(255,107,107,0.35);
   }
@@ -1390,6 +1874,29 @@ function goMine() {
   &.bg_sakura { background: linear-gradient(180deg, #fcc2d7 0%, #fcc2d7 50%, #ffe8cc 50%, #ffe8cc 100%); }
   &.bg_rainy { background: linear-gradient(180deg, #868e96 0%, #868e96 50%, #adb5bd 50%, #adb5bd 100%); }
   &.bg_snow { background: linear-gradient(180deg, #e7f5ff 0%, #e7f5ff 55%, #fff 55%, #fff 100%); }
+  &.bg_default { background: linear-gradient(180deg, #fff7e8 0%, #fff7e8 60%, #e8c9a0 60%, #e8c9a0 100%); }
+
+  /* 房子外观预览：迷你小房子（三角屋顶 + 墙体 + 门） */
+  &.hs_default, &.hs_stone, &.hs_log, &.hs_pumpkin, &.hs_ice, &.hs_mushroom, &.hs_candy, &.hs_sakura, &.hs_castle {
+    position: relative; width: 62rpx; height: 42rpx; margin-top: 30rpx; border-radius: 4rpx;
+    &::before {
+      content: ''; position: absolute; left: -6rpx; right: -6rpx; top: -28rpx; height: 28rpx;
+      clip-path: polygon(0 100%, 50% 0, 100% 100%);
+    }
+    &::after {
+      content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 16rpx; height: 24rpx; border-radius: 6rpx 6rpx 0 0;
+    }
+  }
+  &.hs_default { background: linear-gradient(180deg, #fff7e8, #ffe4bd); &::before { background: linear-gradient(135deg, #f19162, #d2603a); } &::after { background: #8d6e63; } }
+  &.hs_stone { background: #adb5bd; &::before { background: #495057; } &::after { background: #212529; } }
+  &.hs_log { background: repeating-linear-gradient(180deg, #a1887f 0 8rpx, #8d6e63 8rpx 10rpx); &::before { background: #5d4037; } &::after { background: #4e342e; } }
+  &.hs_pumpkin { background: linear-gradient(180deg, #ffd43b, #ffa94d); &::before { background: #e67700; } &::after { background: #3d1d00; } }
+  &.hs_ice { background: #dbe4ff; &::before { background: #74c0fc; } &::after { background: #339af0; } }
+  &.hs_mushroom { background: #fff3bf; &::before { background: radial-gradient(circle at 35% 65%, #fff 0 6rpx, transparent 6rpx), radial-gradient(circle at 68% 40%, #fff 0 5rpx, transparent 5rpx), linear-gradient(135deg, #ff8787, #e03131); } &::after { background: #7a4f21; } }
+  &.hs_candy { background: repeating-linear-gradient(180deg, #fff0f3 0 8rpx, #ffc2d4 8rpx 16rpx); &::before { background: repeating-linear-gradient(135deg, #ff8fab 0 12rpx, #ffc2d4 12rpx 24rpx); } &::after { background: #c2255c; } }
+  &.hs_sakura { background: #ffdeeb; &::before { background: linear-gradient(135deg, #faa2c1, #e64980); } &::after { background: #a61e4d; } }
+  &.hs_castle { background: #c9c5ba; &::before { background: #3b5bdb; } &::after { background: #3b362d; } }
 
   /* 上衣预览 */
   &.top_green {
@@ -1465,12 +1972,6 @@ function goMine() {
   &.drop_fang::before { content: '🦷'; }
   &.drop_scroll::before { content: '📜'; }
   &.drop_shell::before { content: '🐚'; }
-}
-
-/* ===== 属性按钮 ===== */
-.hut-btn.attr {
-  background: #e5dbff;
-  color: #6741d9;
 }
 
 /* ===== 属性弹窗 ===== */
@@ -1669,56 +2170,37 @@ function goMine() {
   }
 }
 
-/* ===== 出门倒计时遮罩：仅覆盖舞台，不挡底部导航 ===== */
-.outing-mask {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  background: rgba(0, 0, 0, 0.55);
-  display: grid;
-  place-items: center;
+/* ===== 世界地图弹窗 ===== */
+.map-img {
+  width: 100%;
+  height: 300rpx;
+  border-radius: 20rpx;
+  margin-top: 16rpx;
+  flex-shrink: 0;
 }
-.outing-card {
-  width: 76%;
-  max-width: 520rpx;
-  padding: 48rpx 36rpx;
-  border-radius: 32rpx;
-  background: var(--ld-card);
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+.map-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16rpx;
+  gap: 4rpx;
+  padding: 20rpx 8rpx;
+  border-radius: 18rpx;
+  background: var(--ld-bg);
 }
-.outing-icon {
-  font-size: 88rpx;
-  line-height: 1;
+.mc-icon { font-size: 44rpx; line-height: 1; }
+.mc-name { font-size: 24rpx; font-weight: 700; color: var(--ld-text); }
+.mc-mark { font-size: 18rpx; color: var(--ld-text-3); }
+/* 世界地图入口高亮 */
+.out-item.map-entry {
+  background: linear-gradient(135deg, #d3f9d8, #a5d8ff);
 }
-.outing-name {
-  font-size: 34rpx;
-  font-weight: 800;
-  color: var(--ld-text);
-}
-.outing-timer {
-  font-size: 72rpx;
-  font-weight: 800;
-  color: var(--ld-primary-dark);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 4rpx;
-}
-.outing-tip {
-  font-size: 22rpx;
-  color: var(--ld-text-3);
-  text-align: center;
-}
-.outing-quit {
-  margin-top: 8rpx;
-  padding: 14rpx 44rpx;
-  border-radius: 999rpx;
-  background: var(--ld-primary-soft);
-  color: var(--ld-primary-dark);
-  font-size: 24rpx;
-  font-weight: 600;
-}
+
 /* 装备面板分类：数量多，允许换行 */
 .equip-tabs {
   flex-wrap: wrap;
